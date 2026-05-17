@@ -1,6 +1,6 @@
 # Octomed Web — backlog & handover
 
-This file is a handover snapshot from the Opus session that built v4. A new
+This file is a handover snapshot from the initial build. A new
 session (e.g. Sonnet) should be able to read this plus `README.md` and pick up
 without re-deriving context.
 
@@ -34,7 +34,7 @@ pixel font, chunky bevel borders.
 
 ## UAT results so far
 
-Two UAT rounds were run against the ModeCat v4 manual, and one round against
+Two UAT rounds were run against the ModeCat manual, and one round against
 the Amiga Format "ModeCat" tutorial series (Ed Wiles, 4 parts) at
 `outputs/afmedtut.txt`.
 

@@ -1,4 +1,4 @@
-// Sequencer (v4):
+// Sequencer:
 //
 //   * Plays patterns chained by `song.positions[]`.
 //   * Advances `songPos` when a pattern reaches the end (or earlier via

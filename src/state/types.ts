@@ -1,4 +1,4 @@
-// Domain types for ModeCat Web (v4 evolution).
+// Domain types for ModeCat v1.0.
 //
 //   * 16 tracks per pattern (was 8 in the v1 build).
 //   * Multiple named patterns, indexed by id, referenced by a Song playlist.
@@ -7,7 +7,7 @@
 //   * Synth = 32-step single-cycle waveform + AHDSR envelope.
 //
 // The pattern cell shape itself stays the same as in v1 — { note, instrument,
-// cmd, data } — because we deliberately did NOT add the v4 volume column
+// cmd, data } — because we deliberately did NOT add a volume column
 // this pass. The expanded effect set can be layered in later without a
 // schema change.
 
@@ -134,7 +134,7 @@ export function pitchProgToText(prog: PitchProgLine[]): string {
   }).join('\n');
 }
 
-/** Multi-waveform v4 synth + AHDSR envelope + pitch program + volume program. */
+/** Multi-waveform synth + AHDSR envelope + pitch program + volume program. */
 export interface SynthInstrument {
   kind: 'synth';
   name: string;
@@ -360,7 +360,7 @@ export interface MidiMessage {
   bytes: number[];   // raw MIDI bytes, e.g. [0xB0, 0x07, 0x64]
 }
 
-/** v4 song bundle for JSON round-trip. */
+/** Song bundle for JSON round-trip. */
 export interface SongFile {
   format: 'modecat';
   version: 1 | 2;

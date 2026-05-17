@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A web-based recreation of OctaMED 1.0 / 1.0.3 (Amiga tracker).",
+  "description": "A browser-based music tracker inspired by OctaMED on the Amiga.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

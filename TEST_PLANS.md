@@ -377,7 +377,7 @@ button but lacks click-drag range selection and loop mode controls. Test
 
 **Tutorial reference:** Part 4 — "The Synth Editor & Volume Programs"
 
-### Status: ❌ Fail — full v4 synth command script not implemented (#33)
+### Status: ❌ Fail — full synth command script not implemented (#33)
 
 ### Preconditions
 - An instrument slot configured as kind = **Synth**.

@@ -1,38 +1,17 @@
-# Octomed Web — v4
+# ModeCat — v1.0
 
-A web tracker inspired by the OctaMED line of Amiga trackers (Teijo
-Kinnunen). The web app talks to a small **local bridge** process over
-WebSocket; the bridge owns all real MIDI I/O on the host.
+A browser-based music tracker inspired by OctaMED on the Amiga. Built with React, TypeScript, Vite, and Zustand. Runs entirely in the browser — no server required.
 
 ```
 ┌────────────────────────────┐    WebSocket     ┌────────────────────────┐
-│  Web app (this repo)       │ ───────────────▶ │  Local bridge process  │
-│  React / Vite / TS         │  ws://127:38010  │  (you implement this)  │
+│  ModeCat (this repo)       │ ───────────────▶ │  Local bridge process  │
+│  React / Vite / TS         │  ws://127:38010  │  (optional)            │
 │  song · 16 tracks · synths │ ◀─────────────── │  CoreMIDI / WinMM /    │
 │  · samples · pattern grid  │   midi_in events │  ALSA → real devices   │
 └────────────────────────────┘                  └────────────────────────┘
 ```
 
-The web app is fully usable without a bridge — it falls back to silent MIDI
-mode so you can still edit patterns, draw synth waveforms, manage the song,
-and see playback move. When a bridge connects, the **MIDI** indicator in the
-status panel turns orange.
-
-## What's in v4 (vs the v1 build)
-
-- **Song / playlist mode** — a vertical list of song positions, each one
-  pointing at a pattern in the bank. You can add/remove positions, rename or
-  delete patterns, and toggle Loop / Pattern Loop.
-- **16 tracks** per pattern — the grid scrolls horizontally when it
-  exceeds the viewport. Click a track header to mute; shift-click to solo.
-- **Synth instruments** — a third instrument kind alongside sample and MIDI.
-  Each synth has a 32-step single-cycle waveform (click/drag the canvas to
-  draw it) and a 4-stage AHDSR envelope. Playable via Web Audio.
-- **Save / Load** — songs round-trip to JSON. Sample PCM and synth
-  waveforms are base64-encoded inside the JSON; everything else is plain
-  text. Drop the file back in via the **Load…** button.
-- **Title / author metadata** — shown in the title bar and saved in the
-  song file.
+The bridge is optional — ModeCat is fully usable without it. When a bridge connects, the **MIDI** indicator in the info bar turns on and real MIDI output is available.
 
 ## Run
 
@@ -44,161 +23,131 @@ npm run dev
 
 Then open <http://127.0.0.1:5173>.
 
-## Bridge
+## Features
 
-The bridge protocol is specified in `BRIDGE_API.md`. None of v4's changes
-touched the wire format — the new features (song mode, mute/solo, synth)
-all live on the client side. A bridge that satisfies v1 of the protocol
-works unchanged.
+- **16-channel pattern sequencer** with 64 rows per block, virtualised rendering
+- **Song editor** — block playlist with section markers, copy/paste, right-click context menu
+- **32 instrument slots** — Sample, MIDI, Synth, and Hybrid types
+- **Sample editor** — waveform display, draggable loop markers, beat grid overlay, playhead animation, BPM detection, bar-snap, trim to loop
+- **Synth editor** — 32-step single-cycle waveform + AHDSR envelope
+- **Volume mixer** — per-channel faders
+- **MDI windows** — Volume Mixer, Notation Editor, Sample Library, Script Editor
+- **Oscilloscope** visualiser
+- **ARexx-compatible scripting** engine
+- **MIDI import** — SMF type 0/1 with grid analysis and import log
+- **Sample Library** — browse and extract samples from WAV, MOD, and XM files
+- **Web Audio API** sequencer engine with full effect command support
+- **Range operations** — cut/copy/paste, transpose, vol fade, echo, pitch slide fill, note change/exchange, spread, command fill
 
 ## Project layout
 
 ```
 src/
-├── App.tsx                       Top-level: 3-col body + footer
+├── App.tsx
 ├── main.tsx
-├── styles/modecat.css            Workbench palette, bevels, pixel font
+├── styles/modecat.css
 ├── components/
 │   ├── TitleBar.tsx
-│   ├── PatternEditor.tsx         16-track grid, mute/solo headers
-│   ├── StatusPanel.tsx           POS · PAT · ROW · SPD · BPM · OCT · MIDI
-│   ├── ButtonCluster.tsx
-│   ├── SongEditor.tsx            song positions + pattern bank
+│   ├── MenuBar.tsx
+│   ├── TransportBar.tsx
+│   ├── InfoBar.tsx
+│   ├── ModeBar.tsx
+│   ├── RangeBar.tsx
+│   ├── PatternEditor.tsx
+│   ├── SongEditor.tsx
 │   ├── InstrumentList.tsx
-│   ├── SampleEditor.tsx          dispatches sample/midi/synth detail views
-│   ├── SynthEditor.tsx           32-step waveform + AHDSR
+│   ├── SampleEditor.tsx
+│   ├── SynthEditor.tsx
+│   ├── VolumeMixer.tsx
+│   ├── NotationEditor.tsx
+│   ├── SampleBrowser.tsx
+│   ├── ScriptEditor.tsx
+│   ├── Oscilloscope.tsx
 │   └── SaveLoadBar.tsx
 ├── state/
-│   ├── types.ts                  + SynthInstrument, Song, TrackFlags
-│   ├── store.ts                  Zustand store (now with song actions)
-│   ├── initial.ts                two demo patterns + a starter synth
-│   └── persist.ts                JSON save/load helpers
+│   ├── types.ts
+│   ├── store.ts
+│   ├── initial.ts
+│   └── persist.ts
 ├── engine/
 │   ├── notes.ts
-│   └── sequencer.ts              song advancement + mute/solo + synth voice
+│   ├── sequencer.ts
+│   ├── midiImport.ts
+│   ├── modParser.ts
+│   ├── arexx.ts
+│   └── kitLoader.ts
 └── bridge/
     ├── protocol.ts
-    └── client.ts                 unchanged from v1
+    └── client.ts
 ```
 
-## Keyboard (pattern editor)
+## Keyboard shortcuts
 
-| Keys                              | Action                                   |
-|-----------------------------------|------------------------------------------|
-| `Z S X D C V G B H N J M`         | Lower octave (C through B)               |
-| `Q 2 W 3 E R 5 T 6 Y 7 U`         | Upper octave                             |
-| `↑ ↓ ← →`                         | Move cursor                              |
-| `Tab` / `Shift+Tab`               | Next / previous channel                  |
-| `Space`                           | Play / stop                              |
-| `Esc` / `Return`                  | Toggle edit mode                         |
-| `Del` / `Backspace`               | Clear current cell                       |
-| `0–9`, `A–F` (in inst/cmd fields) | Hex entry                                |
-| `+` / `-`                         | Octave up / down                         |
-| `F1 F2 F3 F4 F5`                  | Set octave pair 1+2 / 2+3 / 3+4 / 4+5 / 5+6 |
-| `F6 F7 F8 F9 F10`                 | Block jump: first / quarter / middle / 3-qtr / last |
-| `PgUp / PgDn`                     | Scroll by 16 rows                        |
-| `Home / End`                      | First / last row of pattern              |
+| Keys | Action |
+|------|--------|
+| `Z S X D C V G B H N J M` | Lower octave (C–B) |
+| `Q 2 W 3 E R 5 T 6 Y 7 U` | Upper octave |
+| `↑ ↓ ← →` | Move cursor |
+| `Tab` / `Shift+Tab` | Next / previous channel |
+| `Space` | Play / stop |
+| `Esc` / `Return` | Toggle edit mode |
+| `Del` / `Backspace` | Clear current cell |
+| `0–9`, `A–F` | Hex entry in inst/cmd fields |
+| `+` / `-` | Octave up / down |
+| `F1–F5` | Set octave pair |
+| `F6–F10` | Block jump |
+| `PgUp / PgDn` | Scroll 16 rows |
+| `Home / End` | First / last row |
 
-## Effect commands supported
+## Effect commands
 
-The cell's command field is currently a single hex nibble (0–F) plus a 1-byte
-argument. Commands in the 10–FF range from the OctaMED manual aren't yet
-representable; see "Known gaps" below.
-
-| Code  | Name              | Notes                                              |
-|-------|-------------------|----------------------------------------------------|
-| `0B`  | Position jump     | `Bxx` jumps to song position `xx`                  |
-| `0C`  | Set volume        | `Cxy` in 0–40 hex (0–64 dec), rescaled to MIDI 0–127 |
-| `0D`  | Pattern break     | `Dxx` jumps to row `xx` of next song position      |
-| `0F`  | Miscellaneous     | `F00` jump to next block · `F01–F1F` set speed · `F20–FF0` set BPM · `FFE` stop song · `FFF` stop note on track |
-
-## Composition workflows
-
-These are the higher-level moves the OctaMED manual centres a composer
-around. The keystroke list above is just the surface — the workflow
-features below are the real interface for writing a song.
-
-### Range selection and clipboard (manual §RANGE PANEL p. 61)
-
-Shift-click any cell to extend a rectangular selection from the cursor. The
-**RangeBar** appears above the pattern grid with:
-
-- **Cut / Copy / Paste / Clear** — `Cut` copies + clears, `Paste` anchors
-  the buffer at the cursor's row / channel.
-- **Transpose ½▼ / ½▲ / Oct▼ / Oct▲** — shift every note in the range by
-  one semitone or one octave.
-- **Vol Fade** — linearly interpolates a `0C` volume slide between the
-  first and last `0C`-bearing rows inside the range (manual §"Creating
-  volume slides" p. 64).
-- **Echo** — writes decreasing-volume `0C` copies of each note across the
-  range at the configured `Dist` and `Min` (manual §"ECHO EFFECTS" p. 65).
-  Only fills empty cells, matching the manual's behaviour.
-
-`Esc` clears the active range.
-
-### Block ops (manual §BLOCK PANEL p. 36)
-
-- **Split** in the Song panel divides the current pattern at the cursor
-  row. The bottom half becomes a brand-new pattern (named `<orig>+`),
-  inserted immediately after the current song position.
-
-### Chord mode (manual §CHORD ENTERING AID p. 64)
-
-Click the **Chord** button in the footer cluster. With it on, typing a note
-places it at the current cell and advances **horizontally** (next channel,
-same row) instead of vertically. Lay down a triad by typing 3 keys in a
-row; turn Chord off to resume normal entry.
-
-### Global instrument swap (manual §"INSTRUMENT DELETION, EXCHANGING AND CHANGING" p. 59-60)
-
-The right-side **Instrument Swap** panel takes two slot numbers (`From`,
-`To`) and applies one of:
-
-- **Change →** — replace every occurrence of `From` with `To`.
-- **Exchange ↔** — swap every `From` and `To` reference simultaneously.
-- **Delete** — remove every note that uses `From`, leaving silence.
-
-These rewrite all patterns in the song.
-
-## Known gaps
-
-The manual's 2-character command codes — e.g. `16` (Loop), `18` (Stop Note at
-pulse), `1D` (Jump to Next Block at line), `1E` (Play Line ×n), `1F` (Delay +
-Retrigger), `11`/`12` (one-shot pitch slides), `14` (fine vibrato), `15` (set
-finetune), `19` (sample start offset), `1A`/`1B` (one-shot volume slide),
-`1C` (change MIDI preset) — need a structural change to the cell schema
-(cmd byte instead of nibble, plus one extra cursor field in the pattern
-editor) and aren't supported yet.
-
-Auto-slide (`SLIDE: 1` / `SLIDE: 2` from the manual's TRANSPOSE PANEL
-p. 63) is **not** wired up: the range tool would write `03xx` cells, but
-the sequencer doesn't yet implement effect `03` (tone portamento) — pitch
-glide for samples and synths would require sub-row pitch modulation, and
-for MIDI a continuous pitch-bend stream. Filed as a follow-up.
-
-Per-instrument **Transpose** / **Finetune** (manual p. 29), the
-**Programmable Keys** on `Shift+0..9` and `L.ALT`/`R.ALT` (p. 40), the
-auto-space-after-Return setting `SPC=N` (p. 39), block sizes > 64 lines
-(p. 69), the **Hybrid** instrument type (p. 28), and the **Graphic
-Notation Editor** (p. 72) are not yet built.
+| Code | Name | Notes |
+|------|------|-------|
+| `00` | Arpeggio | `xy` = +x / +y semitones per tick |
+| `01` | Slide up | `xx` = speed |
+| `02` | Slide down | `xx` = speed |
+| `03` | Portamento | `xx` = speed toward target note |
+| `04` | Vibrato | `x` = speed, `y` = depth |
+| `05` | Portamento + vol slide | |
+| `06` | Tremolo | `x` = speed, `y` = depth |
+| `0A` | Volume slide | `x` = up, `y` = down |
+| `0B` | Position jump | `xx` = song position |
+| `0C` | Set volume | `00`–`64` |
+| `0D` | Volume slide (alt) | `x` = up, `y` = down |
+| `0F` | Misc | `01`–`1F` = speed · `20`–`F0` = BPM · `FE` = stop · `FF` = cut |
+| `10` | MIDI send | `xx` = slot |
+| `11` | Note up | `xx` semitones, one-shot |
+| `12` | Note down | `xx` semitones, one-shot |
+| `16` | Loop | `00` = set start, `nn` = repeat n times |
+| `18` | Note cut | after `xx` ticks |
+| `19` | Sample offset | `xx` × 256 samples |
+| `1A` | Vol slide up (fine) | |
+| `1B` | Vol slide down (fine) | |
+| `1C` | MIDI program change | `xx` = slot |
+| `1D` | Block break to row | `xx` = row |
+| `1E` | Line repeat | `xx` times |
 
 ## File format (`*.modecat.json`)
 
 ```jsonc
 {
   "format": "modecat",
-  "version": 1,
+  "version": 2,
   "meta":    { "title": "...", "author": "..." },
-  "song":    { "positions": [1, 2, 2] },
+  "song":    { "positions": [1, 2, 2], "sectionMarkers": [] },
   "patterns":[{ "id": 1, "name": "INTRO", "rows": [[/* cells × 16 */], ...] }],
   "instruments": [
-    { "kind": "empty", "name": "--" },
-    { "kind": "midi",  "name": "...", "channel": 0, "program": -1, "velocity": 100, "lengthRows": 4 },
-    { "kind": "synth", "name": "...", "waveform": "<base64 Float32Array>", "attackMs": 5, /* ... */ },
-    { "kind": "sample","name": "...", "pcm": "<base64 Float32Array>", "sampleRate": 44100, /* ... */ }
+    { "kind": "empty",  "name": "--" },
+    { "kind": "midi",   "name": "...", "channel": 0, "program": -1, "velocity": 100, "lengthRows": 4 },
+    { "kind": "synth",  "name": "...", "waveform": "<base64 Float32Array>", "attackMs": 5 },
+    { "kind": "sample", "name": "...", "pcm": "<base64 Float32Array>", "sampleRate": 44100,
+      "loopEnabled": false, "loopStart": 0, "loopEnd": 0 }
   ],
-  "transport": { "bpm": 125, "speed": 6, "loopSong": true },
-  "mutes": [false, false, ...],
-  "solos": [false, false, ...]
+  "transport": { "bpm": 125, "speed": 6 },
+  "mutes": [false, false, "...×16"]
 }
 ```
+
+## Bridge
+
+The optional local bridge handles real MIDI I/O. Protocol details in `BRIDGE_API.md`. Connect a WebSocket client to `ws://127.0.0.1:38010` using sub-protocol `modecat.bridge.v1`.
