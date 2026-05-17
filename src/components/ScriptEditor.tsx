@@ -3,7 +3,7 @@
  *
  * JSON tab
  *   Shows the live song model as pretty-printed JSON (same format as the
- *   .octomed.json save file, including base64 PCM blobs).  Editable:
+ *   .modecat.json save file, including base64 PCM blobs).  Editable:
  *   Apply writes back via importSongFile().  Auto-refreshes when the model
  *   changes externally (unless the editor has unsaved edits).
  *

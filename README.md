@@ -37,7 +37,7 @@ status panel turns orange.
 ## Run
 
 ```bash
-cd octomed-web
+cd modecat
 npm install
 npm run dev
 ```
@@ -57,7 +57,7 @@ works unchanged.
 src/
 ├── App.tsx                       Top-level: 3-col body + footer
 ├── main.tsx
-├── styles/octomed.css            Workbench palette, bevels, pixel font
+├── styles/modecat.css            Workbench palette, bevels, pixel font
 ├── components/
 │   ├── TitleBar.tsx
 │   ├── PatternEditor.tsx         16-track grid, mute/solo headers
@@ -182,11 +182,11 @@ auto-space-after-Return setting `SPC=N` (p. 39), block sizes > 64 lines
 (p. 69), the **Hybrid** instrument type (p. 28), and the **Graphic
 Notation Editor** (p. 72) are not yet built.
 
-## File format (`*.octomed.json`)
+## File format (`*.modecat.json`)
 
 ```jsonc
 {
-  "format": "octomed-web",
+  "format": "modecat",
   "version": 1,
   "meta":    { "title": "...", "author": "..." },
   "song":    { "positions": [1, 2, 2] },

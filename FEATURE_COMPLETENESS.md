@@ -267,7 +267,7 @@ Legend: ✅ Done · ⚠️ Partial · ❌ Missing · 🐛 Bug · 🔵 Out of sco
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Save / Load (JSON) | ✅ | Custom `octomed-web` JSON format, versioned. |
+| Save / Load (JSON) | ✅ | Custom `modecat` JSON format, versioned. |
 | "Incl. samples" toggle | ✅ | Omits PCM blobs; keeps all metadata. Matches "MOD1(NO INSTR)" concept. |
 | Song title + author fields | ✅ | 24-char each, saved in JSON. |
 | Mute / solo flags persisted | ✅ | `mutes[]` and `solos[]` in file. |

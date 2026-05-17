@@ -362,7 +362,7 @@ export interface MidiMessage {
 
 /** v4 song bundle for JSON round-trip. */
 export interface SongFile {
-  format: 'octomed-web';
+  format: 'modecat';
   version: 1 | 2;
   meta: SongMeta;
   song: Song;

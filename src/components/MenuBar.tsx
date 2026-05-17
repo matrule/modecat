@@ -452,14 +452,14 @@ function useMenuDefs(
   // ── Helpers ──
 
   function openSave(inclInstr: boolean) {
-    const fname = (meta.title || 'UNTITLED').replace(/\s+/g, '_').toLowerCase() + '.octomed.json';
+    const fname = (meta.title || 'UNTITLED').replace(/\s+/g, '_').toLowerCase() + '.modecat.json';
     downloadSong(fname, inclInstr);
   }
 
   function openLoad() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,.octomed.json';
+    input.accept = '.json,.modecat.json';
     input.onchange = async () => {
       const f = input.files?.[0];
       if (!f) return;

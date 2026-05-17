@@ -62,7 +62,7 @@ export class BridgeClient {
       this.request({
         type: 'hello',
         payload: {
-          client: 'octomed-web',
+          client: 'modecat',
           clientVersion: '0.1.0',
           wants: ['midi_out', 'midi_in', 'scheduling', 'sysex'],
         },

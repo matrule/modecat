@@ -124,7 +124,7 @@ function deserializeInstrument(s: SerialisedInstrument): Instrument {
 export function exportSongFile(includeInstruments = true): SongFile {
   const s = useStore.getState();
   return {
-    format: 'octomed-web',
+    format: 'modecat',
     version: 2,
     meta: s.meta,
     song: s.song,
@@ -138,7 +138,7 @@ export function exportSongFile(includeInstruments = true): SongFile {
 }
 
 export function importSongFile(raw: unknown): void {
-  if (!isSongFile(raw)) throw new Error('Not a valid octomed-web song file.');
+  if (!isSongFile(raw)) throw new Error('Not a valid modecat song file.');
   const file = raw as SongFile;
   // Backward compat: older saves don't have sectionMarkers on the song object.
   const song = {
@@ -162,10 +162,10 @@ export function importSongFile(raw: unknown): void {
 function isSongFile(x: unknown): x is SongFile {
   if (!x || typeof x !== 'object') return false;
   const o = x as Record<string, unknown>;
-  return o.format === 'octomed-web' && (o.version === 1 || o.version === 2);
+  return o.format === 'modecat' && (o.version === 1 || o.version === 2);
 }
 
-export function downloadSong(filename = 'untitled.octomed.json', includeInstruments = true) {
+export function downloadSong(filename = 'untitled.modecat.json', includeInstruments = true) {
   const data = JSON.stringify(exportSongFile(includeInstruments), null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);

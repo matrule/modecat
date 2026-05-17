@@ -1,4 +1,4 @@
-// Save / Load controls. Save downloads a .octomed.json file. Load opens the
+// Save / Load controls. Save downloads a .modecat.json file. Load opens the
 // File API picker and replaces the current song.
 
 import { useState } from 'react';
@@ -43,7 +43,7 @@ export function SaveLoadBar() {
       <button
         className="btn"
         onClick={() => {
-          const fname = (meta.title || 'untitled').toLowerCase().replace(/\s+/g, '_') + '.octomed.json';
+          const fname = (meta.title || 'untitled').toLowerCase().replace(/\s+/g, '_') + '.modecat.json';
           downloadSong(fname, inclInstr);
         }}
         type="button"

@@ -29,7 +29,7 @@ The bridge is **not** responsible for:
 
 - Protocol: WebSocket
 - Default URL: `ws://127.0.0.1:38010/midi`
-- Sub-protocol identifier: `octomed.bridge.v1`
+- Sub-protocol identifier: `modecat.bridge.v1`
 - Message framing: one JSON object per WebSocket text frame.
 - All numeric IDs (`requestId`, `portId`, etc.) are stable for the duration of
   a single connection.
@@ -83,7 +83,7 @@ First message after socket open. Negotiates capabilities.
 {
   "v": 1, "type": "hello", "id": 1,
   "payload": {
-    "client": "octomed-web",
+    "client": "modecat",
     "clientVersion": "0.1.0",
     "wants": ["midi_out", "midi_in", "scheduling", "sysex"]
   }
@@ -228,7 +228,7 @@ to sync its sequencer to an external clock source.
 {
   "v": 1, "type": "hello_ack", "replyTo": 1,
   "payload": {
-    "server": "octomed-bridge",
+    "server": "modecat-bridge",
     "serverVersion": "0.1.0",
     "supports": ["midi_out", "midi_in", "scheduling", "sysex", "clock"],
     "schedulingResolutionMs": 1

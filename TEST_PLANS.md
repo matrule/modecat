@@ -877,7 +877,7 @@ Current sample editor shows waveform display only; no edit operations. **Fails a
 
 ```bash
 # Start the dev server
-cd /path/to/octomed-web
+cd /path/to/modecat
 npm run dev
 
 # Open http://localhost:5173 in a browser

@@ -2,7 +2,7 @@
 // Mirrors BRIDGE_API.md exactly. If you change anything here, update the spec.
 
 export const PROTOCOL_VERSION = 1 as const;
-export const SUBPROTOCOL = 'octomed.bridge.v1';
+export const SUBPROTOCOL = 'modecat.bridge.v1';
 export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:38010/midi';
 
 // ---------- Client -> Server ----------
@@ -10,7 +10,7 @@ export const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:38010/midi';
 export interface HelloMsg {
   type: 'hello';
   payload: {
-    client: 'octomed-web';
+    client: 'modecat';
     clientVersion: string;
     wants: string[];
   };
