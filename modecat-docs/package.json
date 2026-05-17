@@ -1,6 +1,7 @@
 {
   "name": "modecat-docs",
   "version": "1.0.0",
+  "type": "module",
   "description": "ModeCat documentation site",
   "scripts": {
     "docs:dev": "vitepress dev docs",
