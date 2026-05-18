@@ -8,6 +8,7 @@ import {
   defaultWaveform,
 } from './types';
 import type {
+  Clip,
   HybridInstrument,
   Instrument,
   MidiInstrument,
@@ -134,6 +135,7 @@ export function exportSongFile(includeInstruments = true): SongFile {
     mutes: s.trackFlags.map((f) => f.mute),
     solos: s.trackFlags.map((f) => f.solo),
     midiMessages: s.midiMessages as MidiMessage[],
+    clips: s.clips,
   };
 }
 
@@ -150,12 +152,17 @@ export function importSongFile(raw: unknown): void {
   useStore.getState().loadFromJson({
     meta: file.meta,
     song,
-    patterns: file.patterns as Pattern[],
+    // Ensure backward compat: old saves won't have clipPlacements on patterns.
+    patterns: (file.patterns as Pattern[]).map((p) => ({
+      ...p,
+      clipPlacements: p.clipPlacements ?? [],
+    })),
     instruments: file.instruments.map(deserializeInstrument),
     transport: file.transport,
     mutes: file.mutes,
     solos: file.solos,
     midiMessages: file.midiMessages,
+    clips: (file.clips ?? []) as Clip[],
   });
 }
 

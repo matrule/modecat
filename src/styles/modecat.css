@@ -229,10 +229,11 @@ input[type="checkbox"] {
 }
 
 .modecat__song {
-  flex: 0 0 220px;
+  flex: 0 0 260px;
   border-right: 2px solid var(--wb-black);
   display: flex; flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .modecat__main {
@@ -580,6 +581,103 @@ input[type="checkbox"] {
 .pattern__scroll {
   flex: 1 1 auto;
   overflow: auto;
+}
+
+/* Wrapper for rows + clip overlays. position:relative is the containing block
+   for absolutely-positioned .clip-frame elements. */
+.pattern__rows-wrap {
+  position: relative;
+}
+
+/* ── Clip placement frame overlay ─────────────────────────────────────────── */
+
+.clip-frame {
+  position: absolute;
+  border: 2px solid;          /* color set inline from clip.color */
+  border-radius: 2px;
+  pointer-events: none;       /* pass clicks through to cells below */
+  box-sizing: border-box;
+  z-index: 8;
+}
+
+.clip-frame.is-dragging {
+  opacity: 0.7;
+}
+
+/* Mini toolbar — sits along the top-right of the frame */
+.clip-frame__bar {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid currentColor;
+  border-radius: 0 2px 0 2px;
+  pointer-events: auto;
+  max-width: 100%;
+  overflow: hidden;
+  z-index: 9;
+  height: 14px;
+  line-height: 14px;
+  font-size: 11px;
+}
+
+.clip-frame__drag {
+  padding: 0 3px;
+  cursor: grab;
+  opacity: 0.8;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.clip-frame__drag:active { cursor: grabbing; }
+
+.clip-frame__name {
+  padding: 0 3px;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 8ch;
+  letter-spacing: 0;
+  font-size: 10px;
+}
+
+.clip-frame__del {
+  padding: 0 3px;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  font-size: 12px;
+  line-height: 14px;
+  flex-shrink: 0;
+}
+.clip-frame__del:hover { opacity: 1; color: #FF8888; }
+
+/* Resize handle — bottom-centre drag bar */
+.clip-frame__resize {
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px 2px 0 0;
+  cursor: ns-resize;
+  pointer-events: auto;
+}
+.clip-frame__resize::after {
+  content: '';
+  display: block;
+  margin: 2px auto 0;
+  width: 12px;
+  height: 2px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 1px;
 }
 
 .pattern__row {
@@ -3011,4 +3109,308 @@ input[type="checkbox"] {
   background: #880000;
   color: #FF8888;
   border-color: #FF4444;
+}
+
+/* ── Left panel tab strip ────────────────────────────────────────────────── */
+
+.left-tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 2px solid var(--wb-black);
+}
+
+.left-tabs__tab {
+  flex: 1 1 50%;
+  height: 22px;
+  background: var(--wb-dimblue);
+  color: rgba(255,255,255,0.6);
+  border: none;
+  border-right: 1px solid var(--wb-black);
+  font: inherit;
+  font-size: 0.8em;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  padding: 0;
+}
+.left-tabs__tab:last-child { border-right: none; }
+.left-tabs__tab:hover { color: var(--wb-white); background: #004C99; }
+.left-tabs__tab.is-active {
+  background: var(--wb-blue);
+  color: var(--wb-white);
+  font-weight: bold;
+  border-bottom: 2px solid var(--wb-orange);
+}
+
+/* ── ClipEditor ───────────────────────────────────────────────────────────── */
+
+.clip-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 200px;
+}
+
+.clip-editor__toolbar {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  background: var(--wb-dimblue);
+  border-bottom: 1px solid var(--wb-black);
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+.clip-editor__header {
+  display: grid;
+  background: var(--wb-dimblue);
+  border-bottom: 2px solid var(--wb-black);
+  font-size: 0.72em;
+  flex-shrink: 0;
+  padding: 0 2px;
+}
+.clip-editor__header .ch {
+  text-align: center;
+  padding: 1px 0;
+  cursor: pointer;
+  border-left: 1px solid rgba(0,0,0,0.3);
+  color: rgba(255,255,255,0.7);
+}
+.clip-editor__header .ch.is-current {
+  color: var(--wb-orange);
+}
+
+.clip-editor__scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+
+/* Clip edit button */
+.btn--edit {
+  color: #88DDFF;
+}
+.btn--edit:hover {
+  color: #AAEEFF;
+}
+
+/* ── WbDialog (Workbench prompt / confirm / alert) ───────────────────────── */
+
+.wb-dialog {
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.wb-dialog__body {
+  padding: 12px 12px 8px;
+}
+
+.wb-dialog__message {
+  margin: 0;
+  line-height: 1.45;
+  font-size: 0.9em;
+  color: var(--wb-white);
+  white-space: pre-wrap;
+}
+
+.wb-dialog__footer {
+  gap: 6px;
+}
+
+.wb-dialog__btn {
+  padding: 0 14px;
+  height: 22px;
+  border: 2px solid var(--wb-black);
+  border-top-color: var(--wb-white);
+  border-left-color: var(--wb-white);
+  border-bottom-color: var(--wb-black);
+  border-right-color: var(--wb-black);
+  background: var(--wb-dimblue);
+  color: var(--wb-white);
+  font: inherit;
+  font-size: 0.88em;
+  cursor: pointer;
+  min-width: 64px;
+  text-align: center;
+}
+.wb-dialog__btn:hover {
+  background: #0066CC;
+}
+.wb-dialog__btn:active {
+  border-top-color: var(--wb-black);
+  border-left-color: var(--wb-black);
+  border-bottom-color: var(--wb-white);
+  border-right-color: var(--wb-white);
+}
+.wb-dialog__btn--ok {
+  background: var(--wb-blue);
+  color: var(--wb-white);
+}
+.wb-dialog__btn--ok:hover {
+  background: #0077EE;
+}
+.wb-dialog__btn--ok:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wb-dialog__btn--danger {
+  color: #FF8888;
+}
+.wb-dialog__btn--danger:hover {
+  background: #660000;
+  color: #FFBBBB;
+}
+
+/* ── Clip Palette ─────────────────────────────────────────────────────────── */
+
+.clip-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 120px;
+  padding: 0;
+  width: 100%;
+}
+
+.clip-palette__header {
+  display: flex;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
+  background: var(--wb-dimblue);
+  border-bottom: 1px solid var(--wb-black);
+}
+
+.clip-palette__empty {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.82em;
+  line-height: 1.4;
+}
+
+.clip-palette__list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  max-height: 420px;
+  flex: 1 1 auto;
+}
+
+.clip-palette__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid rgba(0,0,0,0.3);
+  cursor: default;
+}
+.clip-palette__item:hover {
+  background: rgba(255,136,0,0.08);
+}
+.clip-palette__item.is-info-open {
+  background: rgba(68,136,255,0.1);
+}
+
+.clip-palette__swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid rgba(255,255,255,0.3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.clip-palette__swatch:hover {
+  border-color: var(--wb-white);
+}
+
+.clip-palette__name {
+  flex: 1 1 auto;
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.clip-palette__rename-input {
+  flex: 1 1 auto;
+  font-size: 0.9em;
+  min-width: 80px;
+}
+
+.clip-palette__size {
+  font-size: 0.72em;
+  opacity: 0.6;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.clip-palette__usage-badge {
+  font-size: 0.72em;
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  background: rgba(68,136,255,0.25);
+  color: #88BBFF;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.clip-palette__usage-badge.is-unused {
+  background: rgba(255,136,0,0.2);
+  color: var(--wb-orange);
+}
+
+.clip-palette__actions {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.1rem;
+}
+
+.btn--xs {
+  font-size: 0.72em;
+  padding: 0 0.3rem;
+  height: 16px;
+  line-height: 16px;
+}
+
+.btn--danger {
+  color: #FF8888;
+}
+.btn--danger:hover {
+  color: #FFBBBB;
+}
+
+.clip-palette__info {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.2rem 0 0.1rem 18px;
+  font-size: 0.78em;
+  color: rgba(255,255,255,0.7);
+}
+
+.clip-palette__info-pat {
+  background: rgba(68,136,255,0.2);
+  border-radius: 2px;
+  padding: 0 0.3rem;
+}
+
+.clip-palette__footer {
+  padding: 0.4rem 0.5rem;
+  border-top: 1px solid var(--wb-black);
+  background: var(--wb-dimblue);
+}
+
+/* Cell tint for clip placements */
+.cell.in-clip {
+  position: relative;
+}
+
+/* Context menu separator */
+.ctx-menu__sep {
+  height: 1px;
+  background: rgba(255,255,255,0.2);
+  margin: 2px 0;
 }

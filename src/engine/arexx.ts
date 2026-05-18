@@ -29,6 +29,7 @@
  */
 
 import { useStore } from '../state/store';
+import { MAX_INSTRUMENTS } from '../state/types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  TOKENISER
@@ -1077,6 +1078,37 @@ export function makeModeCatDispatcher(): (env: string, cmd: string) => string {
         const len = st.song.positions.length;
         for (let i = len - 1; i >= 0; i--) st.removeSongPosition(i);
         return String(len);
+      }
+
+      case 'RESETALL': {
+        // Wipe song to blank state: clear song order, delete all patterns
+        // except the first (clear its cells), reset all instruments to empty,
+        // and restore default transport. Safe to call before running a snapshot.
+        // 1. Clear song positions
+        const posLen = st.song.positions.length;
+        for (let i = posLen - 1; i >= 0; i--) st.removeSongPosition(i);
+        // 2. Delete all patterns except the first
+        const patIds = st.patterns.map((p: { id: number }) => p.id);
+        for (let i = patIds.length - 1; i >= 1; i--) st.deletePattern(patIds[i]!);
+        // 3. Clear cells in the remaining pattern, make it active
+        const remaining = st.patterns[0];
+        if (remaining) {
+          // Ensure it's reachable via song pos so setRange/rangeClear work
+          st.insertSongPosition(0, remaining.id);
+          st.setTransport({ songPos: 0, patternIndex: 0 });
+          const rows = remaining.rows.length;
+          const chans = remaining.rows[0]?.length ?? 16;
+          st.setRange({ startRow: 0, endRow: rows - 1, startCh: 0, endCh: chans - 1 });
+          st.rangeClear();
+          // Remove that temporary song position again
+          st.removeSongPosition(0);
+        }
+        // 4. Reset all instruments to empty
+        for (let i = 0; i < MAX_INSTRUMENTS; i++)
+          st.setInstrument(i, { kind: 'empty', name: '--' } as import('../state/types').Instrument);
+        // 5. Reset transport to defaults
+        st.setTransport({ bpm: 125, speed: 6 });
+        return 'OK';
       }
 
       // ── Note editing ──────────────────────────────────────────────────────

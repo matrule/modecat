@@ -14,6 +14,7 @@ import {
   NOTE_HOLD,
 } from '../engine/notes';
 import { CHANNELS, type PatternCell } from '../state/types';
+import { WbPrompt, WbAlert } from './WbDialog';
 
 const COL_WIDTH_CH = 12; // each channel column = 12 character cells wide
 const ROW_H        = 18; // must match CSS: .pattern__row { height: 18px }
@@ -50,6 +51,62 @@ export function PatternEditor() {
   const drumConfig     = useStore((s) => s.drumConfig);
   const instHighlight  = useStore((s) => s.instHighlight);
 
+  // Clip system
+  const clips                = useStore((s) => s.clips);
+  // Note: clips also accessed below for WbPrompt default name — same subscription used.
+  const song                 = useStore((s) => s.song);
+  const transport            = useStore((s) => s.transport);
+  const createClipFromRange  = useStore((s) => s.createClipFromRange);
+  const unlinkClipPlacement  = useStore((s) => s.unlinkClipPlacement);
+  const extendClipPlacement  = useStore((s) => s.extendClipPlacement);
+  const moveClipPlacement    = useStore((s) => s.moveClipPlacement);
+
+  // Build a lookup: "row-ch" → clip info for every cell covered by a placement.
+  // Includes the actual clip cell so the PatternEditor can render clip data
+  // (not the empty pattern cells underneath).
+  const clipCellMap = useMemo(() => {
+    const map = new Map<string, {
+      color: string;
+      placementId: string;
+      clipName: string;
+      clipCell: PatternCell;
+    }>();
+    if (!pattern) return map;
+    for (const pl of pattern.clipPlacements ?? []) {
+      const clip = clips.find((c) => c.id === pl.clipId);
+      if (!clip) continue;
+      const clipChanCount = clip.rows[0]?.length ?? 0;
+      for (let row = pl.startRow; row < pl.startRow + pl.tileRows; row++) {
+        const clipRowIdx = (row - pl.startRow) % clip.rows.length;
+        for (let ci = 0; ci < clipChanCount; ci++) {
+          if (!pl.channelMask[ci]) continue;
+          const ch = pl.startCh + ci;
+          const clipCell = clip.rows[clipRowIdx]?.[ci] ?? { note: 0, instrument: 0, cmd: 0, data: 0 };
+          map.set(`${row}-${ch}`, {
+            color: clip.color,
+            placementId: pl.id,
+            clipName: clip.name,
+            clipCell,
+          });
+        }
+      }
+    }
+    return map;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pattern?.clipPlacements, clips]);
+
+  // Keep a ref so the keyboard handler (stable useCallback) can read fresh clip state.
+  const clipCellMapRef = useRef(clipCellMap);
+  clipCellMapRef.current = clipCellMap;
+
+  // Unlink prompt: shown when the user tries to edit a clip-covered cell.
+  const [unlinkPrompt, setUnlinkPrompt] = useState<{
+    placementId: string;
+    clipName: string;
+  } | null>(null);
+  const setUnlinkPromptRef = useRef(setUnlinkPrompt);
+  setUnlinkPromptRef.current = setUnlinkPrompt;
+
   // Build a map from channel index (0-based) → voice name for drum channels.
   const drumChannelNames = useMemo(() => {
     const map = new Map<number, string>();
@@ -66,6 +123,77 @@ export function PatternEditor() {
   // ── Row selection (shift-click on row numbers) ───────────────────────────
   // Independent of the cell range — only rows, not channels.
   const [rowSel, setRowSel] = useState<{ anchor: number; end: number } | null>(null);
+
+  // ── Clip name prompt (shown after right-click "Save Range as Clip") ──────
+  const [clipPromptOpen, setClipPromptOpen] = useState(false);
+
+  // ── Pixel width of 1 ch unit (measured once after mount) ─────────────────
+  // Used to convert ch-based column positions to pixels for overlay drag math.
+  const [chPx, setChPx] = useState(10.8);
+  useEffect(() => {
+    const el = document.createElement('span');
+    el.style.cssText = 'position:absolute;visibility:hidden;font:inherit';
+    el.textContent = '0';
+    document.body.appendChild(el);
+    const w = el.getBoundingClientRect().width;
+    if (w > 0) setChPx(w);
+    el.remove();
+  }, []);
+
+  // ── Clip overlay drag state ───────────────────────────────────────────────
+  type ClipDrag =
+    | { kind: 'move';   placementId: string; patId: number;
+        origRow: number; origCh: number;
+        anchorY: number; anchorX: number;
+        ghostRow: number; ghostCh: number; }
+    | { kind: 'resize'; placementId: string; patId: number;
+        origTileRows: number; anchorY: number; ghostTileRows: number; };
+  const [clipDrag, setClipDrag] = useState<ClipDrag | null>(null);
+  const clipDragRef = useRef(clipDrag);
+  clipDragRef.current = clipDrag;
+
+  // Global mousemove / mouseup for clip dragging
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const d = clipDragRef.current;
+      if (!d) return;
+      if (d.kind === 'move') {
+        const deltaRow = Math.round((e.clientY - d.anchorY) / ROW_H);
+        const deltaCh  = Math.round((e.clientX - d.anchorX) / (COL_WIDTH_CH * chPx));
+        setClipDrag((prev) =>
+          prev?.kind === 'move'
+            ? { ...prev,
+                ghostRow: Math.max(0, d.origRow + deltaRow),
+                ghostCh:  Math.max(0, d.origCh  + deltaCh), }
+            : prev
+        );
+      } else {
+        const deltaRow     = Math.round((e.clientY - d.anchorY) / ROW_H);
+        const newTileRows  = Math.max(1, d.origTileRows + deltaRow);
+        setClipDrag((prev) =>
+          prev?.kind === 'resize' ? { ...prev, ghostTileRows: newTileRows } : prev
+        );
+      }
+    }
+    function onUp() {
+      const d = clipDragRef.current;
+      if (!d) return;
+      if (d.kind === 'move') {
+        moveClipPlacement(d.patId, d.placementId, d.ghostRow, d.ghostCh);
+      } else {
+        const patLen = patternRef.current?.rows.length ?? 1;
+        extendClipPlacement(d.patId, d.placementId, Math.min(d.ghostTileRows, patLen - 1));
+      }
+      setClipDrag(null);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chPx, moveClipPlacement, extendClipPlacement]);
   const rowSelRef = useRef(rowSel);
   rowSelRef.current = rowSel;
 
@@ -315,6 +443,24 @@ export function PatternEditor() {
 
     const { row, channel, field } = cursor;
 
+    // Clip guard: block edits on cells covered by a clip placement and prompt
+    // the user to unlink first. Navigating (arrow keys, Tab, etc.) is fine;
+    // only actual write actions (delete, note entry, hex) are intercepted.
+    {
+      const isWrite =
+        e.key === 'Delete' || e.key === 'Backspace' ||
+        (field === 0 && !e.ctrlKey && !e.metaKey && !e.altKey) ||
+        hexCharToValue(e.key) >= 0;
+      if (isWrite) {
+        const clipInfo = clipCellMapRef.current.get(`${row}-${channel}`);
+        if (clipInfo) {
+          e.preventDefault();
+          setUnlinkPromptRef.current({ placementId: clipInfo.placementId, clipName: clipInfo.clipName });
+          return;
+        }
+      }
+    }
+
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       clearCell(row, channel);
@@ -433,6 +579,27 @@ export function PatternEditor() {
   const tpl = `3.5ch repeat(${visibleTracks}, ${COL_WIDTH_CH}ch)`;
 
   return (
+    <>
+    {clipPromptOpen && (
+      <WbPrompt
+        title="Save Range as Clip"
+        label="Clip name"
+        defaultValue={`Clip ${clips.length + 1}`}
+        okLabel="Save"
+        onConfirm={(name) => {
+          setClipPromptOpen(false);
+          createClipFromRange(name);
+        }}
+        onCancel={() => setClipPromptOpen(false)}
+      />
+    )}
+    {unlinkPrompt && (
+      <WbAlert
+        title={`Clip: "${unlinkPrompt.clipName}"`}
+        message={`This cell is part of a clip placement. Right-click the row and choose Unlink to detach the clip and edit cells freely.`}
+        onClose={() => setUnlinkPrompt(null)}
+      />
+    )}
     <div className="pattern">
       <div className="pattern__scroll" ref={scrollRef} onScroll={handleScroll}>
         <div className="pattern__header" style={{ gridTemplateColumns: tpl }}>
@@ -516,6 +683,9 @@ export function PatternEditor() {
           })}
         </div>
 
+        {/* Rows wrapper — position:relative so clip overlays can be absolutely placed */}
+        <div className="pattern__rows-wrap">
+
         {/* Top spacer — fills the scroll height above the rendered window */}
         {topH > 0 && <div style={{ height: topH }} aria-hidden />}
 
@@ -550,13 +720,14 @@ export function PatternEditor() {
                 const menu = document.createElement('div');
                 menu.className = 'ctx-menu';
                 menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:9999`;
-                const mkItem = (text: string, cb: () => void) => {
+                const mkItem = (text: string, cb: () => void, disabled = false) => {
                   const item = document.createElement('div');
-                  item.className = 'ctx-menu__item';
+                  item.className = `ctx-menu__item${disabled ? ' is-disabled' : ''}`;
                   item.textContent = text;
-                  item.onmousedown = (ev) => { ev.stopPropagation(); menu.remove(); cb(); };
+                  if (!disabled) item.onmousedown = (ev) => { ev.stopPropagation(); menu.remove(); cb(); };
                   return item;
                 };
+                const activeRange = rangeRef.current;
                 menu.append(
                   mkItem(`Insert ${label} at ${selMin}  [Ins]`, () => {
                     setCursor({ row: selMin });
@@ -569,6 +740,34 @@ export function PatternEditor() {
                     setRowSel(null);
                   }),
                 );
+                // Clip options
+                if (activeRange) {
+                  const sep = document.createElement('div');
+                  sep.className = 'ctx-menu__sep';
+                  menu.append(sep);
+                  menu.append(mkItem('Save Range as Clip…', () => {
+                    setClipPromptOpen(true);
+                  }));
+                }
+                // Unlink any clip placements that cover this row
+                const patId = song.positions[transport.songPos];
+                if (patId != null && pattern) {
+                  const placements = (pattern.clipPlacements ?? []).filter(
+                    (pl) => r >= pl.startRow && r < pl.startRow + pl.tileRows
+                  );
+                  if (placements.length > 0) {
+                    const sep2 = document.createElement('div');
+                    sep2.className = 'ctx-menu__sep';
+                    menu.append(sep2);
+                    for (const pl of placements) {
+                      const clip = clips.find((c) => c.id === pl.clipId);
+                      const clipName = clip?.name ?? 'Unknown clip';
+                      menu.append(mkItem(`Unlink "${clipName}"`, () => {
+                        unlinkClipPlacement(patId, pl.id);
+                      }));
+                    }
+                  }
+                }
                 document.body.append(menu);
                 const dismiss = () => { menu.remove(); document.removeEventListener('mousedown', dismiss); };
                 setTimeout(() => document.addEventListener('mousedown', dismiss), 0);
@@ -596,10 +795,11 @@ export function PatternEditor() {
                 const highlighted = instHighlight
                   && cell.instrument !== 0
                   && cell.instrument === selectedInstrument;
+                const clipInfo = clipCellMap.get(`${r}-${c}`);
                 return (
                   <CellView
                     key={c}
-                    cell={cell}
+                    cell={clipInfo?.clipCell ?? cell}
                     channelIndex={c}
                     rowIndex={r}
                     isCursorRow={isCurrent}
@@ -608,6 +808,7 @@ export function PatternEditor() {
                     muted={anySolo ? !trackFlags[c]!.solo : trackFlags[c]!.mute}
                     inRange={inRange}
                     highlighted={highlighted}
+                    clipColor={clipInfo?.color}
                     onMouseDown={(e) => {
                       setRowSel(null); // cell click clears row selection
                       if (e.shiftKey) {
@@ -626,8 +827,86 @@ export function PatternEditor() {
 
         {/* Bottom spacer — fills the scroll height below the rendered window */}
         {bottomH > 0 && <div style={{ height: bottomH }} aria-hidden />}
+
+        {/* ── Clip placement overlays ────────────────────────────────────── */}
+        {(() => {
+          const gutterCh = 3.5;
+          const colCh    = COL_WIDTH_CH;
+          const patId    = song.positions[transport.songPos];
+          if (patId == null) return null;
+          return (pattern.clipPlacements ?? []).map((pl) => {
+            const clip = clips.find((c) => c.id === pl.clipId);
+            if (!clip) return null;
+            const chanCount = clip.rows[0]?.length ?? 1;
+            // Ghost positions during drag
+            const isDragging = clipDrag?.placementId === pl.id;
+            const row      = isDragging && clipDrag!.kind === 'move'   ? clipDrag!.ghostRow      : pl.startRow;
+            const ch       = isDragging && clipDrag!.kind === 'move'   ? clipDrag!.ghostCh       : pl.startCh;
+            const tileRows = isDragging && clipDrag!.kind === 'resize' ? clipDrag!.ghostTileRows : pl.tileRows;
+            const topPx    = row * ROW_H;
+            const heightPx = tileRows * ROW_H;
+            const leftCh   = gutterCh + ch * colCh;
+            const widthCh  = chanCount * colCh;
+            return (
+              <div
+                key={pl.id}
+                className={`clip-frame${isDragging ? ' is-dragging' : ''}`}
+                style={{
+                  top:    topPx,
+                  height: heightPx,
+                  left:   `${leftCh}ch`,
+                  width:  `${widthCh}ch`,
+                  borderColor: clip.color,
+                }}
+              >
+                {/* Mini toolbar — top-right */}
+                <div className="clip-frame__bar">
+                  <span
+                    className="clip-frame__drag"
+                    title="Drag to move"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setClipDrag({
+                        kind: 'move', placementId: pl.id, patId,
+                        origRow: pl.startRow, origCh: pl.startCh,
+                        anchorY: e.clientY,   anchorX: e.clientX,
+                        ghostRow: pl.startRow, ghostCh: pl.startCh,
+                      });
+                    }}
+                  >⠿</span>
+                  <span className="clip-frame__name">{clip.name}</span>
+                  <button
+                    className="clip-frame__del"
+                    title="Unlink (detach clip)"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => unlinkClipPlacement(patId, pl.id)}
+                  >×</button>
+                </div>
+                {/* Resize handle — bottom centre */}
+                <div
+                  className="clip-frame__resize"
+                  title="Drag to resize"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setClipDrag({
+                      kind: 'resize', placementId: pl.id, patId,
+                      origTileRows: pl.tileRows,
+                      anchorY: e.clientY,
+                      ghostTileRows: pl.tileRows,
+                    });
+                  }}
+                />
+              </div>
+            );
+          });
+        })()}
+
+        </div>{/* end .pattern__rows-wrap */}
       </div>
     </div>
+    </>
   );
 }
 
@@ -641,6 +920,7 @@ function CellView({
   muted,
   inRange,
   highlighted,
+  clipColor,
   onMouseDown,
 }: {
   cell: PatternCell;
@@ -652,6 +932,7 @@ function CellView({
   muted: boolean;
   inRange: boolean;
   highlighted: boolean;
+  clipColor?: string;
   onMouseDown: (e: React.MouseEvent) => void;
 }) {
   const noteEmpty = cell.note === 0;
@@ -663,13 +944,19 @@ function CellView({
     muted       ? 'is-muted'          : '',
     inRange     ? 'in-range'          : '',
     highlighted ? 'is-inst-highlight' : '',
+    clipColor   ? 'in-clip'           : '',
   ].filter(Boolean).join(' ');
 
   const instActive = showCursor && (cursorField === 1 || cursorField === 2);
   const cmdActive  = showCursor && cursorField >= 3;
 
+  // Clip tint: a semi-transparent left border using the clip colour.
+  const clipStyle = clipColor
+    ? { borderLeft: `3px solid ${clipColor}`, background: `${clipColor}1a` }
+    : undefined;
+
   return (
-    <div className={cls} onMouseDown={onMouseDown} data-ch={channelIndex} data-row={rowIndex}>
+    <div className={cls} style={clipStyle} onMouseDown={onMouseDown} data-ch={channelIndex} data-row={rowIndex}>
       <span className={`note seg ${noteEmpty ? 'is-empty' : ''} ${showCursor && cursorField === 0 ? 'is-cursor' : ''}`}>
         {formatNote(cell.note)}
       </span>

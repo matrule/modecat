@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import {
   CHANNELS,
+  CLIP_COLORS,
   ROWS_PER_PATTERN,
   emptyCell,
   makeEmptyPattern,
   makeDefaultDrumConfig,
   type BridgeStatus,
+  type Clip,
+  type ClipPlacement,
   type CursorState,
   type DrumConfig,
   type DrumVoice,
@@ -77,6 +80,7 @@ interface Store {
   patterns: Pattern[];           // pattern bank, keyed by id
   instruments: Instrument[];
   trackFlags: TrackFlags[];      // per-track mute/solo
+  clips: Clip[];                 // reusable clip library
 
   // ---- editor / playback ----
   cursor: CursorState;
@@ -114,6 +118,30 @@ interface Store {
    * (ROWS_PER_PATTERN cells) from the last "Copy Track" operation.
    */
   trackClipboard: PatternCell[] | null;
+
+  // ---- clip library ----
+  /** Create a clip from the current range selection. Returns the new clip id. */
+  createClipFromRange: (name: string) => string | null;
+  /** Add a clip placement to a pattern. Prompts handled by caller. */
+  addClipPlacement: (patternId: number, placement: Omit<ClipPlacement, 'id'>) => void;
+  /** Remove a clip placement from a pattern (without unlinking — just removes reference). */
+  removeClipPlacement: (patternId: number, placementId: string) => void;
+  /** Unlink: convert clip placement cells back to plain pattern data and remove placement. */
+  unlinkClipPlacement: (patternId: number, placementId: string) => void;
+  /** Delete a clip from the library. Removes all its placements across all patterns. */
+  deleteClip: (clipId: string) => void;
+  /** Duplicate a clip in the library, returning the new clip id. */
+  copyClip: (clipId: string) => string;
+  /** Update a clip's rows (from the clip MDI editor). Propagates to all placements. */
+  updateClip: (clipId: string, rows: PatternCell[][]) => void;
+  /** Rename a clip. */
+  renameClip: (clipId: string, name: string) => void;
+  /** Extend a placement's tileRows. */
+  extendClipPlacement: (patternId: number, placementId: string, tileRows: number) => void;
+  /** Move a placement to a new row/channel origin. */
+  moveClipPlacement: (patternId: number, placementId: string, newStartRow: number, newStartCh: number) => void;
+  /** Change a clip's colour. */
+  setClipColor: (clipId: string, color: string) => void;
 
   // ---- meta actions ----
   setMeta: (m: Partial<SongMeta>) => void;
@@ -349,6 +377,7 @@ interface Store {
     mutes: boolean[];
     solos: boolean[];
     midiMessages?: MidiMessage[];
+    clips?: Clip[];
   }) => void;
 }
 
@@ -405,6 +434,7 @@ export const useStore = create<Store>((set, get) => {
   patterns: makeInitialPatterns(),
   instruments: makeInitialInstruments(),
   trackFlags: makeInitialTrackFlags(),
+  clips: [],
 
   cursor: initialCursor,
   transport: initialTransport,
@@ -426,6 +456,186 @@ export const useStore = create<Store>((set, get) => {
   noteNaming: 'B' as 'B' | 'H',
   visibleTracks: 16,
   drumConfig: makeDefaultDrumConfig(),
+
+  // ── Clip library ────────────────────────────────────────────────────────────
+
+  createClipFromRange: (name) => {
+    const { range, clips } = get();
+    const pat = get().activePattern();
+    if (!range || !pat) return null;
+    const { startRow, endRow, startCh, endCh } = range;
+    const rows: PatternCell[][] = [];
+    for (let r = startRow; r <= endRow; r++) {
+      const rowCells: PatternCell[] = [];
+      for (let c = startCh; c <= endCh; c++) {
+        rowCells.push({ ...pat.rows[r]![c]! });
+      }
+      rows.push(rowCells);
+    }
+    const id = String(Date.now());
+    const color = CLIP_COLORS[clips.length % CLIP_COLORS.length]!;
+    const chCount = endCh - startCh + 1;
+    const tileRows = endRow - startRow + 1;
+    const newClip: Clip = { id, name, color, rows };
+    // Replace the source cells with a clip placement
+    const placement: ClipPlacement = {
+      id: `${id}_p0`,
+      clipId: id,
+      startCh,
+      startRow,
+      channelMask: Array(chCount).fill(true),
+      tileRows,
+    };
+    set((s) => ({
+      clips: [...s.clips, newClip],
+      patterns: s.patterns.map((p) => {
+        if (p.id !== pat.id) return p;
+        // Clear the original cells so they don't show through when the clip is moved.
+        const newRows = p.rows.map((row, r) => {
+          if (r < startRow || r > endRow) return row;
+          return row.map((cell, c) =>
+            c >= startCh && c <= endCh ? emptyCell() : cell
+          );
+        });
+        return {
+          ...p,
+          rows: newRows,
+          clipPlacements: [...(p.clipPlacements ?? []), placement],
+        };
+      }),
+    }));
+    return id;
+  },
+
+  addClipPlacement: (patternId, placement) => {
+    const id = `${placement.clipId}_p${Date.now()}`;
+    set((s) => ({
+      patterns: s.patterns.map((p) =>
+        p.id !== patternId ? p : {
+          ...p,
+          clipPlacements: [...(p.clipPlacements ?? []), { ...placement, id }],
+        }
+      ),
+    }));
+  },
+
+  removeClipPlacement: (patternId, placementId) => {
+    set((s) => ({
+      patterns: s.patterns.map((p) =>
+        p.id !== patternId ? p : {
+          ...p,
+          clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.id !== placementId),
+        }
+      ),
+    }));
+  },
+
+  unlinkClipPlacement: (patternId, placementId) => {
+    const { clips } = get();
+    set((s) => ({
+      patterns: s.patterns.map((p) => {
+        if (p.id !== patternId) return p;
+        const placement = (p.clipPlacements ?? []).find((pl) => pl.id === placementId);
+        if (!placement) return p;
+        const clip = clips.find((c) => c.id === placement.clipId);
+        if (!clip) return { ...p, clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.id !== placementId) };
+        // Copy clip data into pattern rows
+        const newRows = p.rows.map((row) => row.map((cell) => ({ ...cell })));
+        for (let ri = 0; ri < placement.tileRows; ri++) {
+          const absRow = placement.startRow + ri;
+          if (absRow >= newRows.length) break;
+          const clipRow = ri % clip.rows.length;
+          for (let ci = 0; ci < clip.rows[clipRow]!.length; ci++) {
+            if (!(placement.channelMask[ci] ?? true)) continue;
+            const absCh = placement.startCh + ci;
+            if (absCh >= CHANNELS) break;
+            newRows[absRow]![absCh] = { ...clip.rows[clipRow]![ci]! };
+          }
+        }
+        return {
+          ...p,
+          rows: newRows,
+          clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.id !== placementId),
+        };
+      }),
+    }));
+  },
+
+  deleteClip: (clipId) => {
+    set((s) => ({
+      clips: s.clips.filter((c) => c.id !== clipId),
+      patterns: s.patterns.map((p) => ({
+        ...p,
+        clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.clipId !== clipId),
+      })),
+    }));
+  },
+
+  copyClip: (clipId) => {
+    const { clips } = get();
+    const src = clips.find((c) => c.id === clipId);
+    if (!src) return clipId;
+    const id = String(Date.now());
+    const color = CLIP_COLORS[clips.length % CLIP_COLORS.length]!;
+    const newClip: Clip = {
+      id,
+      name: `${src.name} copy`,
+      color,
+      rows: src.rows.map((row) => row.map((cell) => ({ ...cell }))),
+    };
+    set((s) => ({ clips: [...s.clips, newClip] }));
+    return id;
+  },
+
+  updateClip: (clipId, rows) => {
+    set((s) => ({
+      clips: s.clips.map((c) => c.id !== clipId ? c : { ...c, rows }),
+    }));
+  },
+
+  renameClip: (clipId, name) => {
+    set((s) => ({
+      clips: s.clips.map((c) => c.id !== clipId ? c : { ...c, name }),
+    }));
+  },
+
+  extendClipPlacement: (patternId, placementId, tileRows) => {
+    set((s) => ({
+      patterns: s.patterns.map((p) =>
+        p.id !== patternId ? p : {
+          ...p,
+          clipPlacements: (p.clipPlacements ?? []).map((pl) =>
+            pl.id !== placementId ? pl : { ...pl, tileRows }
+          ),
+        }
+      ),
+    }));
+  },
+
+  moveClipPlacement: (patternId, placementId, newStartRow, newStartCh) => {
+    set((s) => ({
+      patterns: s.patterns.map((p) => {
+        if (p.id !== patternId) return p;
+        const maxRow = Math.max(0, p.rows.length - 1);
+        return {
+          ...p,
+          clipPlacements: (p.clipPlacements ?? []).map((pl) =>
+            pl.id !== placementId ? pl : {
+              ...pl,
+              startRow: Math.max(0, Math.min(maxRow, newStartRow)),
+              startCh:  Math.max(0, Math.min(CHANNELS - 1, newStartCh)),
+            }
+          ),
+        };
+      }),
+    }));
+  },
+
+  setClipColor: (clipId, color) => {
+    set((s) => ({
+      clips: s.clips.map((c) => c.id !== clipId ? c : { ...c, color }),
+    }));
+  },
 
   setMeta: (m) => set((s) => ({ meta: { ...s.meta, ...m } })),
 
@@ -940,7 +1150,7 @@ export const useStore = create<Store>((set, get) => {
           : Array.from({ length: CHANNELS }, () => emptyCell());
       });
       const top: Pattern    = { ...orig, rows: topRows };
-      const bottom: Pattern = { id: nextId, name: `${orig.name}+`, rows: bottomRows };
+      const bottom: Pattern = { id: nextId, name: `${orig.name}+`, rows: bottomRows, clipPlacements: [] };
       const patterns = [...s.patterns.slice(0, idx), top, ...s.patterns.slice(idx + 1), bottom];
       // Insert the new block id directly after the current song position.
       const sp = s.transport.songPos;
@@ -1357,6 +1567,7 @@ export const useStore = create<Store>((set, get) => {
       midiMessages: f.midiMessages
         ? Array.from({ length: 16 }, (_, i) => f.midiMessages![i] ?? s.midiMessages[i])
         : s.midiMessages,
+      clips: f.clips ?? [],
     })),
   }; // end of returned store object
 }); // end of create<Store>

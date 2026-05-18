@@ -24,8 +24,11 @@ import { MidiMessagesDialog } from './components/MidiMessagesDialog';
 import { SampleListEditor } from './components/SampleListEditor';
 import { SampleBrowser } from './components/SampleBrowser';
 import { VolumeMixer } from './components/VolumeMixer';
+import { ClipPalette } from './components/ClipPalette';
+import { ClipEditor } from './components/ClipEditor';
 import { useStore } from './state/store';
 import { setNoteNamingMode } from './engine/notes';
+import type { Clip } from './state/types';
 
 // MDI window state shape
 interface MdiState {
@@ -45,6 +48,11 @@ export default function App() {
   const selectedInstrument = useStore((s) => s.selectedInstrument);
   const canUndo = useStore((s) => s.canUndo());
   const canRedo = useStore((s) => s.canRedo());
+
+  // Left panel tab: 'song' | 'clips'
+  const [leftTab, setLeftTab] = useState<'song' | 'clips'>('song');
+  // Clip being edited in the ClipEditor MDI
+  const [editingClip, setEditingClip] = useState<Clip | null>(null);
 
   // Inst Params dialog — opened from transport Inst Params… button or Alt+I
   const [instParamsOpen, setInstParamsOpen] = useState(false);
@@ -68,8 +76,9 @@ export default function App() {
   const [drumMdi, setDrumMdi]                 = useState<MdiState>({ open: false, x: 60,  y: 80,  z: 396 });
   const [sampleBrowserMdi, setSampleBrowserMdi] = useState<MdiState>({ open: false, x: 100, y: 90,  z: 395 });
   const [mixerMdi, setMixerMdi]               = useState<MdiState>({ open: false, x: 240, y: 100, z: 394 });
+  const [clipsMdi, setClipsMdi]               = useState<MdiState>({ open: false, x: 280, y: 110, z: 393 });
 
-  function bringToFront(which: 'synth' | 'sample' | 'notation' | 'script' | 'drum' | 'browser' | 'mixer') {
+  function bringToFront(which: 'synth' | 'sample' | 'notation' | 'script' | 'drum' | 'browser' | 'mixer' | 'clips') {
     nextZ.current += 1;
     const z = nextZ.current;
     if (which === 'synth')         setSynthMdi((s) => ({ ...s, z }));
@@ -78,6 +87,7 @@ export default function App() {
     else if (which === 'script')   setScriptMdi((s) => ({ ...s, z }));
     else if (which === 'browser')  setSampleBrowserMdi((s) => ({ ...s, z }));
     else if (which === 'mixer')    setMixerMdi((s) => ({ ...s, z }));
+    else if (which === 'clips')    setClipsMdi((s) => ({ ...s, z }));
     else                           setDrumMdi((s) => ({ ...s, z }));
   }
 
@@ -114,6 +124,11 @@ export default function App() {
   function openMixerMdi() {
     nextZ.current += 1;
     setMixerMdi((s) => ({ ...s, open: true, z: nextZ.current }));
+  }
+
+  function openClipsMdi() {
+    nextZ.current += 1;
+    setClipsMdi((s) => ({ ...s, open: true, z: nextZ.current }));
   }
 
   // Sync noteNaming store value into the notes engine module
@@ -160,6 +175,11 @@ export default function App() {
       if (e.altKey && (e.key === 'v' || e.key === 'V')) {
         e.preventDefault();
         openMixerMdi();
+      }
+      // Alt+C — Clip Palette
+      if (e.altKey && (e.key === 'c' || e.key === 'C')) {
+        e.preventDefault();
+        openClipsMdi();
       }
     }
     document.addEventListener('keydown', handleKeys);
@@ -268,6 +288,7 @@ export default function App() {
         onEditDrum={openDrumMdi}
         onVolumeMixer={openMixerMdi}
         onSampleBrowser={openSampleBrowserMdi}
+        onClipPalette={openClipsMdi}
         onInstParams={() => setInstParamsOpen(true)}
         onPanic={() => seq.panic()}
       />
@@ -280,7 +301,23 @@ export default function App() {
       />
       <div className="modecat__body">
         <aside className="modecat__song">
-          <SongEditor />
+          {/* Tab strip */}
+          <div className="left-tabs">
+            <button
+              className={`left-tabs__tab${leftTab === 'song' ? ' is-active' : ''}`}
+              type="button"
+              onClick={() => setLeftTab('song')}
+            >SONG</button>
+            <button
+              className={`left-tabs__tab${leftTab === 'clips' ? ' is-active' : ''}`}
+              type="button"
+              onClick={() => setLeftTab('clips')}
+            >CLIPS</button>
+          </div>
+          {leftTab === 'song'
+            ? <SongEditor />
+            : <ClipPalette onEdit={(clip) => setEditingClip(clip)} />
+          }
         </aside>
         <main className="modecat__main">
           <InfoBar />
@@ -425,6 +462,40 @@ export default function App() {
           onFocus={() => bringToFront('mixer')}
         >
           <VolumeMixer seq={seq} />
+        </MdiWindow>
+      )}
+
+      {clipsMdi.open && (
+        <MdiWindow
+          title="Clip Palette"
+          initialX={clipsMdi.x}
+          initialY={clipsMdi.y}
+          zIndex={clipsMdi.z}
+          minWidth={360}
+          onClose={() => setClipsMdi((s) => ({ ...s, open: false }))}
+          onFocus={() => bringToFront('clips')}
+        >
+          <ClipPalette onEdit={(clip) => setEditingClip(clip)} />
+        </MdiWindow>
+      )}
+
+      {editingClip && (
+        <MdiWindow
+          title={`Edit Clip: ${editingClip.name}`}
+          initialX={180}
+          initialY={90}
+          zIndex={600}
+          minWidth={480}
+          onClose={() => setEditingClip(null)}
+        >
+          <ClipEditor
+            clip={editingClip}
+            onSave={(rows) => {
+              useStore.getState().updateClip(editingClip.id, rows);
+              setEditingClip(null);
+            }}
+            onClose={() => setEditingClip(null)}
+          />
         </MdiWindow>
       )}
     </div>

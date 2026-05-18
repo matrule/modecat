@@ -569,6 +569,106 @@ throughout the manual.
   Would feed into the sequencer as a per-track gain multiplier applied in
   `triggerCell` alongside `playTranspose`.
 
+### Future / exploratory
+
+#### Clip system (reusable pattern regions)
+
+A clip is a named, reusable block of pattern data covering a channel range and a number of rows. Clips are independent objects — not owned by any block. Placements are references. Editing the clip updates all placements instantly.
+
+**Creating a clip**
+- Lasso a channel+row region in the pattern editor, right-click → "Save as Clip"
+- The selected cells immediately become a tinted, read-only clip placement
+- Clip appears in the Clip Palette panel (left panel, tabbed alongside Instruments)
+
+**Placing a clip**
+- Drag from palette onto the pattern grid
+- If the target cells already contain data → prompt: "Overwrite / Cancel" (like Excel drag-drop)
+- Clip renders as a coloured tinted region with a visible bounding box
+- A drag handle at the bottom edge lets the user extend the clip — extension tiles the clip content to fill (loops it)
+- Shortcut key to fill-to-end-of-block
+
+**Channel masking on placement**
+- When placing, the user can choose which channels from the clip to include
+- Masked channels appear empty in that placement but remain in the master clip
+- Useful for "use the drums clip but skip the toms here"
+
+**Editing a clip**
+- Double-click any tinted cell → opens the clip in a dedicated MDI window (mini pattern editor showing only that clip's channels and rows)
+- Changes propagate to all placements in real time
+- The MDI window title shows the clip name and usage count
+
+**Unlinking a clip**
+- Right-click a placement → "Unlink" — severs the reference and converts the cells back to plain editable pattern data
+- The user can then lasso the result and save it as a new clip if they want a variant
+- Unlink affects only that placement — other blocks still reference the original clip
+
+**Clip palette panel**
+- Shows all clips with name, channel width, row count, and colour swatch
+- Actions per clip: **Edit** (opens MDI window), **Copy** (creates a new independent copy of the clip — editing one does not affect the other), **Delete**
+- **Clip info** — shows which blocks the clip is used in, or flags it as "unused" so the user knows it's safe to delete
+- Delete is blocked (or prompts) if the clip has active placements — show the block list first
+
+**Data model sketch**
+```typescript
+interface Clip {
+  id: string;
+  name: string;
+  color: string;        // hex tint colour
+  channelCount: number;
+  rows: PatternCell[][]; // [row][channel]
+}
+
+interface ClipPlacement {
+  clipId: string;
+  startCh: number;
+  startRow: number;
+  channelMask: boolean[]; // which clip channels are active
+  tileRows: number;       // how many rows to fill (may be > clip.rows.length, tiled)
+}
+
+// Pattern gains:
+clipPlacements: ClipPlacement[];
+```
+
+**Sequencer reads clips transparently** — for each cell, check if it falls within a clip placement; if so, read from the clip (respecting channel mask and tiling), otherwise read from the block's own data. No other engine changes needed.
+
+**Limitations vs Renoise matrix (accepted)**
+- Blocks are still the atomic song unit — you can't have ch1-5 and ch6-10 advancing through the song at truly independent rates across block boundaries
+- Within a block, clips of different lengths loop independently (covers 95% of real use — a 16-row drum clip loops 4× in a 64-row block naturally)
+- Placing clips in each block is still manual — but editing the master updates everywhere, which is the key win
+
+#### ARexx enhancements
+
+- **ARexx plugin system — Level 1 (GETWAVE/SETWAVE).** Add `GETWAVE inst` / `SETWAVE inst s0 s1 … s31` commands to read/write synth instrument waveform arrays from ARexx. Enables fully scripted additive synthesis, FM, wavetable generation etc. Low effort — store access already exists.
+
+- **ARexx plugin system — Level 2 (declarative MDI windows).** Scripts declare a window layout (`CREATEWINDOW`, `ADDSLIDER`, `ADDBUTTON` etc); ModeCat renders it as an MDI window; user interactions trigger a re-run of a named script handler. Would unlock user-built tools — FM designers, arpeggiators, generative composition — without touching the source.
+
+- **ARexx plugin system — Level 3 (persistent event-driven plugins).** Scripts that stay running and respond asynchronously to sequencer events (note triggers, transport, UI). Full plugin host — significant infrastructure work, design decision needed first.
+
+#### Arpeggiator
+
+- **Arpeggiator (tracker-native approach).** Keep this firmly in tracker territory — not a real-time MIDI effect. Two complementary implementations:
+  1. **ARexx script** — a bundled `arpeggio.mcat` script that takes a chord (notes + instrument) and a mode (Up/Down/UpDown/Random/As-played) and writes the resulting note sequence into the current pattern. Uses existing ARexx commands, no engine changes needed.
+  2. **Dedicated effect command** — a new `20xx` command (or repurpose an unused slot) that triggers an arp pattern at runtime, similar to how `00xy` does 2-step arpeggio but with a stored pattern. Research: Roland Juno-60, Korg Poly-61, Oberheim OB-Xa, Novation Bass Station (1993), Korg Prophecy (1995). Modes to support: Up, Down, Up+Down, Random, As-played, Chord.
+
+#### Effects (staying within tracker paradigm)
+
+- **Per-instrument resonant filter with envelope.** Precedent: Impulse Tracker (1995) added a resonant lowpass filter per channel with envelope control and still considered itself a tracker. Implementation: add `filterCutoff`, `filterResonance`, and a filter envelope (attack/decay/sustain/release + depth) to `SampleInstrument` and `SynthInstrument`. Sequencer routes audio through a `BiquadFilterNode` per channel. Per-cell filter cutoff offset via a new effect command. Keeps modulation in the per-cell/per-instrument model rather than adding automation lanes.
+
+- **Per-instrument LFO.** A single LFO per instrument slot (rate, depth, target: pitch / volume / filter cutoff, waveform: sine/square/saw/random). Distinct from the per-cell vibrato (04) and tremolo (06) commands — this runs continuously for the life of the note without needing an effect column entry. Tracker-appropriate because it lives on the instrument, not as a routable modulation matrix.
+
+- **Chorus / ensemble effect on master output.** A single send-level chorus on the master mix (not per-channel inserts). Precedent: several late-90s trackers added a global chorus. Simple to implement with Web Audio (`DelayNode` + slight detune). One knob, no routing — keeps it simple and non-DAW-like.
+
+- **BPM detection improvement.** The `DETECT` button in the Sample Editor currently halves the BPM for some loops (detected 63 instead of 126 in testing). Improve the detection algorithm to handle octave errors — after initial detection, check if `bpm × 2` or `bpm / 2` gives a better fit against the loop length and auto-correct.
+
+#### Docs
+
+- **Docs screenshots.** Capture UI screenshots (Sample Editor, Pattern Grid, Song Editor, etc.) and embed them in the VitePress docs. Use Claude in Chrome against a running dev server to automate capture into `modecat-docs/docs/public/`.
+
+#### Formats — decided against
+
+MOD/MED/MMD/IFF full import and MOD export are **not worth building**. The sample extraction from MOD/XM files already in the Sample Browser is sufficient. The format constraints (4 channels, Amiga period table) make MOD export actively lossy for a 16-channel ModeCat song. Revisit only if user demand appears.
+
 ### Out of scope on purpose
 
 Amiga channel splitting (4–8 channel modes), the hardware audio filter,

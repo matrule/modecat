@@ -25,10 +25,38 @@ export interface PatternCell {
   data: number;       // effect data byte 0..255
 }
 
+// ── Clip system ───────────────────────────────────────────────────────────────
+
+export const CLIP_COLORS = [
+  '#4488FF', '#FF8844', '#44CC88', '#CC44CC',
+  '#FFCC44', '#44CCCC', '#FF4488', '#88CC44',
+];
+
+/** A reusable, named block of pattern data. Independent of any pattern. */
+export interface Clip {
+  id: string;
+  name: string;
+  color: string;
+  rows: PatternCell[][]; // [row][channel] — channel count = rows[0].length
+}
+
+/** A reference to a Clip placed into a specific region of a Pattern. */
+export interface ClipPlacement {
+  id: string;          // unique placement id (within the pattern)
+  clipId: string;
+  startCh: number;     // 0-based first channel
+  startRow: number;    // 0-based first row
+  /** Which clip channels are active. Length = clip channel count. true = use clip data. */
+  channelMask: boolean[];
+  /** Total rows this placement occupies. May exceed clip row count — content tiles. */
+  tileRows: number;
+}
+
 export interface Pattern {
   id: number;
   name: string;
   rows: PatternCell[][]; // [row][channel]
+  clipPlacements: ClipPlacement[];
 }
 
 export type InstrumentKind = 'sample' | 'midi' | 'synth' | 'empty';
@@ -338,6 +366,7 @@ export const makeEmptyPattern = (
   rows: Array.from({ length }, () =>
     Array.from({ length: CHANNELS }, () => emptyCell())
   ),
+  clipPlacements: [],
 });
 
 /** A reasonable default 32-step waveform (sawtooth-ish). */
@@ -374,6 +403,8 @@ export interface SongFile {
   solos: boolean[];
   /** Named MIDI message slots (16 slots, index = data byte of 10xx command). */
   midiMessages?: MidiMessage[];
+  /** Reusable clip definitions. */
+  clips?: Clip[];
 }
 
 // ── Drum machine ──────────────────────────────────────────────────────────────

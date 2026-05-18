@@ -273,13 +273,15 @@ interface MenuBarProps {
   onVolumeMixer?: () => void;
   /** Open the Sample Library MDI window */
   onSampleBrowser?: () => void;
+  /** Open the Clip Palette MDI window */
+  onClipPalette?: () => void;
   /** Open the Instrument Parameters dialog */
   onInstParams?: () => void;
   /** Send MIDI all-notes-off panic */
   onPanic?: () => void;
 }
 
-export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming = 'B', onToggleNoteNaming, visibleTracks = 16, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onInstParams, onPanic }: MenuBarProps = {}) {
+export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming = 'B', onToggleNoteNaming, visibleTracks = 16, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic }: MenuBarProps = {}) {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
@@ -304,7 +306,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onInstParams, onPanic);
+  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic);
 
   function toggleMenu(idx: number) {
     setOpenMenu((prev) => (prev === idx ? null : idx));
@@ -403,6 +405,7 @@ function useMenuDefs(
   onEditDrum?: () => void,
   onVolumeMixer?: () => void,
   onSampleBrowser?: () => void,
+  onClipPalette?: () => void,
   onInstParams?: () => void,
   onPanic?: () => void,
 ): MenuDef[] {
@@ -525,6 +528,7 @@ function useMenuDefs(
         { label: 'Drum Editor…', action: onEditDrum, shortcut: 'Alt+D' },
         { kind: 'sep' },
         { label: 'Volume Mixer…', action: onVolumeMixer, shortcut: 'Alt+V' },
+        { label: 'Clip Palette…', action: onClipPalette, shortcut: 'Alt+C' },
       ],
     },
 

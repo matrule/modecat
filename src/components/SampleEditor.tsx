@@ -68,8 +68,12 @@ function applyChangeVolume(
   return out;
 }
 
-function lastNonSilent(pcm: Float32Array, thr = 0.0001): number {
+function lastNonSilent(pcm: Float32Array, thr = 0.001): number {
   for (let i = pcm.length - 1; i >= 0; i--) if (Math.abs(pcm[i]!) > thr) return i;
+  return 0;
+}
+function firstNonSilent(pcm: Float32Array, thr = 0.001): number {
+  for (let i = 0; i < pcm.length; i++) if (Math.abs(pcm[i]!) > thr) return i;
   return 0;
 }
 
@@ -771,8 +775,19 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
   }
   function opTrim() {
     if (!sample?.pcm) return;
+    const first = firstNonSilent(sample.pcm);
     const last = lastNonSilent(sample.pcm);
-    setInstrument(idx, { ...sample, pcm: sample.pcm.slice(0, last + 1) } as SampleInstrument);
+    const cropped = sample.pcm.slice(first, last + 1);
+    const newLen = cropped.length;
+    // Shift loop markers to account for trimmed start
+    const newLoopStart = Math.max(0, sample.loopStart - first);
+    const newLoopEnd = Math.min(newLen - 1, sample.loopEnd - first);
+    setInstrument(idx, {
+      ...sample,
+      pcm: cropped,
+      loopStart: newLoopStart,
+      loopEnd: newLoopEnd,
+    } as SampleInstrument);
     setSelStart(null); setSelEnd(null); showAll();
   }
 
@@ -1037,7 +1052,7 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
           onClick={() => setDialog(dialog === 'expand' ? null : 'expand')}
           style={{ color: dialog === 'expand' ? '#FF8800' : undefined }}>Expand</button>
         <button className="btn" type="button" disabled={!sample.pcm} onClick={opTrim}
-          title="Strip trailing silence from sample end">Trim Silence</button>
+          title="Strip leading and trailing silence from sample">Trim Silence</button>
       </div>
 
       {/* ── Button row 3 — Loop markers + file ───────────────────────────────── */}

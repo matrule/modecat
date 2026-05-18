@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { exportSongFile, importSongFile } from '../state/persist';
 import { runARexx, makeModeCatDispatcher } from '../engine/arexx';
 import { useStore } from '../state/store';
+import { formatNote, hex2 } from '../engine/notes';
 
 type Tab = 'json' | 'arexx';
 
@@ -31,6 +32,98 @@ function lineCount(s: string): number {
   let n = 1;
   for (let i = 0; i < s.length; i++) if (s[i] === '\n') n++;
   return n;
+}
+
+// ── ARexx snapshot generator ──────────────────────────────────────────────────
+
+function generateARexxSnapshot(): string {
+  const store = useStore.getState();
+  const { patterns, song, instruments, transport, trackFlags } = store;
+  const date = new Date().toISOString().slice(0, 10);
+  const lines: string[] = [];
+
+  lines.push(`/* ModeCat ARexx snapshot — generated ${date} */`);
+  lines.push(`/* Run on a blank session to recreate this song.  */`);
+  lines.push(`/* Samples are not included — load WAV files manually. */`);
+  lines.push('');
+  lines.push(`ADDRESS 'MODECAT'`);
+  lines.push('');
+  lines.push(`/* Reset to blank state before rebuilding */`);
+  lines.push(`'RESETALL'`);
+  lines.push('');
+
+  // Transport
+  lines.push(`/* ── Transport ─────────────────────────────────────── */`);
+  lines.push(`'SETBPM ${transport.bpm}'`);
+  lines.push(`'SETSPEED ${transport.speed}'`);
+  lines.push('');
+
+  // Instruments (skip empty slots)
+  const namedInsts = instruments
+    .map((inst, i) => ({ inst, slot: i + 1 }))
+    .filter(({ inst }) => inst.kind !== 'empty');
+  if (namedInsts.length) {
+    lines.push(`/* ── Instruments ───────────────────────────────────── */`);
+    for (const { inst, slot } of namedInsts) {
+      lines.push(`'SETINSTNAME ${slot} ${inst.name}'`);
+    }
+    lines.push('');
+  }
+
+  // Mutes
+  const mutedChans = trackFlags
+    .map((f: { mute: boolean }, i: number) => f.mute ? i + 1 : null)
+    .filter((v): v is number => v !== null);
+  if (mutedChans.length) {
+    lines.push(`/* ── Mutes ─────────────────────────────────────────── */`);
+    for (const ch of mutedChans) lines.push(`/* channel ${ch} is muted */`);
+    lines.push('');
+  }
+
+  // Song order — clear first, then rebuild
+  lines.push(`/* ── Song order ────────────────────────────────────── */`);
+  lines.push(`'CLEARSONG'`);
+  lines.push('');
+
+  // Patterns
+  lines.push(`/* ── Patterns ──────────────────────────────────────── */`);
+  const patVar: Record<number, string> = {};
+  patterns.forEach((pat, pi) => {
+    const varName = `pat${pi + 1}`;
+    patVar[pat.id] = varName;
+    lines.push(`/* Pattern ${pi + 1}: ${pat.name} */`);
+    lines.push(`'ADDPATTERN ${pat.name}'`);
+    lines.push(`${varName} = RESULT`);
+    lines.push(`'SELECTPATTERN' ${varName}`);
+    lines.push(`'SETPATTERNLENGTH ${pat.rows.length}'`);
+    let hasNotes = false;
+    pat.rows.forEach((row, ri) => {
+      row.forEach((cell, ci) => {
+        if (cell.note === 0 && cell.instrument === 0 && cell.cmd === 0 && cell.data === 0) return;
+        const note = formatNote(cell.note);
+        const inst = cell.instrument;
+        const cmd = cell.cmd === 0 ? '--' : hex2(cell.cmd);
+        const data = cell.data === 0 ? '--' : hex2(cell.data);
+        lines.push(`'SETNOTE ${ri + 1} ${ci + 1} ${note} ${inst} ${cmd} ${data}'`);
+        hasNotes = true;
+      });
+    });
+    if (!hasNotes) lines.push(`/* (empty pattern) */`);
+    lines.push('');
+  });
+
+  // Song positions
+  if (song.positions.length) {
+    lines.push(`/* ── Song positions ────────────────────────────────── */`);
+    for (const id of song.positions) {
+      const v = patVar[id];
+      if (v) lines.push(`'APPENDSONG' ${v}`);
+    }
+    lines.push('');
+  }
+
+  lines.push(`/* ── End of snapshot ───────────────────────────────── */`);
+  return lines.join('\n');
 }
 
 // ── default ARexx starter script ─────────────────────────────────────────────
@@ -155,13 +248,20 @@ function JsonPane() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function ARexxPane() {
-  const [code, setCode] = useState<string>(AREXX_STARTER);
+  const [code, setCode] = useState<string>(() => {
+    try { return generateARexxSnapshot(); } catch { return AREXX_STARTER; }
+  });
   const [output, setOutput] = useState<OutLine[]>([]);
   const [running, setRunning] = useState(false);
   const outputRef = useRef<HTMLDivElement>(null);
 
   function handleCodeChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setCode(e.target.value);
+  }
+
+  function handleSnapshot() {
+    try { setCode(generateARexxSnapshot()); }
+    catch (e) { setCode(AREXX_STARTER); }
   }
 
   function handleRun() {
@@ -211,6 +311,11 @@ function ARexxPane() {
           type="button" onClick={handleRun} disabled={running}
           title="Run ARexx script (Ctrl+Enter)">
           ▶ RUN
+        </button>
+        <button className="btn script-editor__btn" type="button"
+          onClick={handleSnapshot} disabled={running}
+          title="Regenerate script from current song state">
+          ↺ SNAPSHOT
         </button>
         <button className="btn script-editor__btn" type="button"
           onClick={handleClear} title="Clear output console">
