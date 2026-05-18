@@ -27,6 +27,7 @@ import type { MidiOutEvent } from '../bridge/protocol';
 import { useStore } from '../state/store';
 import {
   CHANNELS,
+  type Clip,
   type HybridInstrument,
   type Instrument,
   type Pattern,
@@ -241,6 +242,8 @@ export class Sequencer {
   private bridge: BridgeClient;
   private audioCtx: AudioContext | null = null;
   private timer: number | null = null;
+  /** Clip library snapshot updated each tick — used by resolveRow. */
+  private _clips: Clip[] = [];
   /**
    * One AnalyserNode per channel, wired between the channel's last gain node
    * and ctx.destination.  Created once alongside the AudioContext and reused
@@ -539,7 +542,10 @@ export class Sequencer {
     // Snapshot store once per tick — avoids N×16 getState() calls inside the loop.
     // BPM/speed are re-read each iteration in case Fxx effect changes them mid-burst,
     // but patterns, instruments and audibility are stable across the 80ms window.
-    const { song, patterns, instruments, selectedOutPortId, playTranspose, midiMessages } = state;
+    const { song, patterns, instruments, selectedOutPortId, playTranspose, midiMessages, clips } = state;
+    // Keep clip library current so resolveRow can overlay clip cells on top of
+    // zeroed pattern rows during playback.
+    this._clips = clips;
     const patMap = new Map(patterns.map((p) => [p.id, p]));
     const isAudible = Array.from({ length: CHANNELS }, (_, ch) => state.isAudible(ch));
 
@@ -608,6 +614,52 @@ export class Sequencer {
     }
   }
 
+  // ── Clip resolution ───────────────────────────────────────────────────────
+
+  /**
+   * Return the effective cells for `row` in `pattern`, overlaying any clip
+   * placements that cover this row on top of the (possibly zeroed) base row.
+   *
+   * When a clip is created the source cells are cleared so they don't bleed
+   * through when the clip is repositioned. The sequencer must therefore read
+   * clip data from the clip library rather than pattern.rows for any row that
+   * falls inside a clip placement.
+   */
+  private resolveRow(pattern: Pattern, row: number): PatternCell[] | undefined {
+    const base = pattern.rows[row];
+    if (!base) return undefined;
+
+    const placements = pattern.clipPlacements;
+    if (!placements || placements.length === 0) return base;
+
+    let resolved: PatternCell[] | null = null;
+
+    for (const placement of placements) {
+      // Skip if this row is outside the placement's tileRows span.
+      if (row < placement.startRow || row >= placement.startRow + placement.tileRows) continue;
+
+      const clip = this._clips.find((c) => c.id === placement.clipId);
+      if (!clip || clip.rows.length === 0) continue;
+
+      // Clip rows tile (loop) if tileRows > clip.rows.length.
+      const clipRowIdx = (row - placement.startRow) % clip.rows.length;
+      const clipRow = clip.rows[clipRowIdx];
+      if (!clipRow) continue;
+
+      // Lazy-copy base row before first mutation.
+      if (!resolved) resolved = base.slice();
+
+      for (let ci = 0; ci < clipRow.length; ci++) {
+        if (!(placement.channelMask[ci] ?? true)) continue;
+        const absCh = placement.startCh + ci;
+        if (absCh >= CHANNELS) break;
+        resolved[absCh] = clipRow[ci]!;
+      }
+    }
+
+    return resolved ?? base;
+  }
+
   // ── Row scheduling ────────────────────────────────────────────────────────
 
   private scheduleRow(
@@ -622,7 +674,7 @@ export class Sequencer {
     playTranspose = 0,
     midiMessages: { name: string; bytes: number[] }[] = []
   ): { newSongPos?: number; newRow: number } | undefined {
-    const cells = pattern.rows[row];
+    const cells = this.resolveRow(pattern, row);
     if (!cells) return undefined;
 
     const midiEvents: MidiOutEvent[] = [];
