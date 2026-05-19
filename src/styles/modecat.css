@@ -249,6 +249,116 @@ input[type="checkbox"] {
   min-height: 0;
 }
 
+.modecat__info {
+  flex: 0 0 186px;
+  border-left: 2px solid var(--wb-black);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── InfoPanel internals ─────────────────────────────────── */
+.info-panel {
+  display: flex; flex-direction: column;
+  padding: 0.25rem 0.3rem;
+  gap: 0;
+  font-size: 13px;
+}
+
+.info-section {
+  border-bottom: 1px solid rgba(255,255,255,0.12);
+  padding: 0.3rem 0 0.35rem;
+  margin-bottom: 0.1rem;
+}
+.info-section:last-child { border-bottom: none; }
+
+.info-section__title {
+  font-size: 11px;
+  color: var(--wb-orange);
+  letter-spacing: 0.07em;
+  margin-bottom: 0.25rem;
+  font-weight: bold;
+}
+
+.info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  line-height: 1.55;
+}
+
+.info-row--subhead {
+  justify-content: space-between;
+  margin-top: 0.15rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 0.1rem;
+}
+
+.info-row--calc {
+  justify-content: space-between;
+}
+
+.info-row--name {
+  margin-bottom: 0.1rem;
+}
+
+.info-row--hint {
+  margin-top: 0.2rem;
+}
+
+.info-label {
+  color: rgba(255,255,255,0.45);
+  font-size: 11px;
+  flex: 0 0 auto;
+  min-width: 2.8rem;
+}
+
+.info-value {
+  color: var(--wb-white);
+  flex: 1 1 auto;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.info-value--hi    { color: #88ddff; }
+.info-value--kind  { color: #ffcc44; font-size: 11px; }
+.info-value--on    { color: #88ff88; }
+.info-value--off   { color: rgba(255,255,255,0.35); }
+.info-value--exact { color: #88ff88; }
+.info-value--frac  { color: #ffcc44; }
+
+.info-value--name {
+  font-size: 12px;
+  color: #aaddff;
+  text-align: left;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.info-dim {
+  color: rgba(255,255,255,0.35);
+  font-size: 11px;
+}
+
+.info-dim--hint {
+  font-size: 11px;
+  white-space: normal;
+  line-height: 1.3;
+  color: rgba(255,255,255,0.5);
+}
+
+.info-empty {
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+  font-style: italic;
+}
+
 .modecat__footer {
   border-top: 2px solid var(--wb-black);
   display: flex; gap: 0.5rem; padding: 0.4rem;
@@ -367,12 +477,12 @@ input[type="checkbox"] {
 .mode-bar {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
   padding: 0.15rem 0.4rem;
   background: var(--wb-dimblue);
   border-bottom: 1px solid var(--wb-black);
-  overflow: hidden;
 }
 
 .mode-bar__toggle {
@@ -440,6 +550,22 @@ input[type="checkbox"] {
   color: var(--wb-orange);
 }
 
+/* Clear selection button — only rendered when a range is active */
+.mode-bar__range-clear {
+  height: 22px;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--wb-orange);
+  border: 1px solid var(--wb-orange);
+  margin-left: 0.4rem;
+}
+.mode-bar__range-clear:hover {
+  background: rgba(255,136,0,0.15);
+}
+
 .mode-bar__spacer {
   flex: 1;
 }
@@ -471,18 +597,6 @@ input[type="checkbox"] {
   text-decoration: line-through;
 }
 
-.mode-bar__ch-btn.is-solo {
-  background: var(--wb-orange);
-  color: var(--wb-black);
-  border-top-color: var(--wb-white);
-  border-left-color: var(--wb-white);
-  border-right-color: #884400;
-  border-bottom-color: #884400;
-}
-
-.mode-bar__ch-btn.is-dimmed {
-  opacity: 0.4;
-}
 
 /* ---------- Oscilloscope / VU bar strip (#59) ---------- */
 
@@ -656,6 +770,45 @@ input[type="checkbox"] {
   flex-shrink: 0;
 }
 .clip-frame__del:hover { opacity: 1; color: #FF8888; }
+
+/* ── Range drag overlay ────────────────────────────────────────────────────── */
+
+.range-overlay {
+  position: absolute;
+  border: 2px dashed rgba(255, 136, 0, 0.7);
+  border-radius: 2px;
+  pointer-events: none;
+  box-sizing: border-box;
+  z-index: 7;
+}
+
+.range-overlay.is-dragging {
+  border-color: #FF8800;
+  border-style: solid;
+  opacity: 0.75;
+  background: rgba(255, 136, 0, 0.08);
+}
+
+/* Drag handle — top-left corner */
+.range-overlay__drag {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 18px;
+  height: 14px;
+  background: rgba(255, 136, 0, 0.85);
+  border-radius: 0 0 3px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #000;
+  cursor: grab;
+  pointer-events: auto;
+  z-index: 9;
+  line-height: 1;
+}
+.range-overlay__drag:active { cursor: grabbing; }
 
 /* Resize handle — bottom-centre drag bar */
 .clip-frame__resize {

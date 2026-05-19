@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useStore } from '../state/store';
 import { CHANNELS } from '../state/types';
 
@@ -12,6 +13,22 @@ export function InfoBar() {
   const setCursor = useStore((s) => s.setCursor);
 
   const outPorts = ports.filter((p) => p.direction === 'out');
+
+  // Local draft so the user can type freely — only committed on blur/Enter if valid.
+  const [bpmDraft, setBpmDraft] = useState<string>(String(transport.bpm));
+  // Keep draft in sync when the store value changes externally (e.g. MIDI import).
+  useEffect(() => { setBpmDraft(String(transport.bpm)); }, [transport.bpm]);
+
+  function commitBpm(raw: string) {
+    const v = parseFloat(raw);
+    if (isFinite(v) && v >= 20 && v <= 255) {
+      setTransport({ bpm: Math.round(v) });
+      setBpmDraft(String(Math.round(v)));
+    } else {
+      // Revert to current store value if invalid
+      setBpmDraft(String(transport.bpm));
+    }
+  }
 
   const song = useStore((s) => s.song);
   const patterns = useStore((s) => s.patterns);
@@ -56,9 +73,12 @@ export function InfoBar() {
           type="number"
           min={20}
           max={255}
-          value={transport.bpm}
-          onChange={(e) => setTransport({ bpm: Math.max(20, Math.min(255, Number(e.target.value))) })}
+          value={bpmDraft}
+          onChange={(e) => setBpmDraft(e.target.value)}
+          onBlur={(e) => commitBpm(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { commitBpm((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur(); } }}
           style={{ width: '5ch' }}
+          title="BPM (20–255) — type freely, commits on Enter or blur"
         />
 
         <span className="label">SPC</span>

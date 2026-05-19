@@ -71,10 +71,10 @@ function deserializeInstrument(s: SerialisedInstrument): Instrument {
       pcm: sample.pcm ? base64ToF32(sample.pcm) : null,
       loopEnabled: sample.loopEnabled ?? false, // default for saves made before loopEnabled was added
       // AHDSR defaults for saves made before envelope was added to SampleInstrument:
-      attackMs:   sample.attackMs   ?? 0,
+      attackMs:   sample.attackMs   ?? 5,
       decayMs:    sample.decayMs    ?? 0,
       sustain:    sample.sustain    ?? 1,
-      releaseMs:  sample.releaseMs  ?? 0,
+      releaseMs:  sample.releaseMs  ?? 110,
       lengthRows: sample.lengthRows ?? 0,
     };
   }
@@ -136,6 +136,7 @@ export function exportSongFile(includeInstruments = true): SongFile {
     solos: s.trackFlags.map((f) => f.solo),
     midiMessages: s.midiMessages as MidiMessage[],
     clips: s.clips,
+    arpSequences: s.arpSequences,
   };
 }
 

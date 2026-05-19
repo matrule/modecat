@@ -11,6 +11,7 @@ import {
   type ClipPlacement,
   type CursorState,
   type DrumConfig,
+  type ArpSequence,
   type DrumVoice,
   type Instrument,
   type MidiMessage,
@@ -190,6 +191,8 @@ interface Store {
   rangeCopy: () => void;
   rangePaste: () => void;
   rangeClear: () => void;
+  /** Move the current range to a new top-left position, clearing the source. */
+  rangeMove: (toStartRow: number, toStartCh: number) => void;
   /** Transpose every note in the range by ±semitones. */
   rangeTransposeSemi: (delta: number) => void;
   /** Transpose every note in the range by ±octaves. */
@@ -298,6 +301,11 @@ interface Store {
   midiMessages: MidiMessage[];
   setMidiMessage: (index: number, msg: MidiMessage) => void;
 
+  /** User-defined arpeggio sequences (cmd 0x20..0x2F). Up to 16. */
+  arpSequences: ArpSequence[];
+  setArpSequence: (seq: ArpSequence) => void;
+  removeArpSequence: (id: number) => void;
+
   setTransport: (patch: Partial<TransportState>) => void;
   play: () => void;
   stop: () => void;
@@ -378,6 +386,7 @@ interface Store {
     solos: boolean[];
     midiMessages?: MidiMessage[];
     clips?: Clip[];
+    arpSequences?: ArpSequence[];
   }) => void;
 }
 
@@ -521,12 +530,27 @@ export const useStore = create<Store>((set, get) => {
 
   removeClipPlacement: (patternId, placementId) => {
     set((s) => ({
-      patterns: s.patterns.map((p) =>
-        p.id !== patternId ? p : {
+      patterns: s.patterns.map((p) => {
+        if (p.id !== patternId) return p;
+        const placement = (p.clipPlacements ?? []).find((pl) => pl.id === placementId);
+        if (!placement) return { ...p, clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.id !== placementId) };
+        // Clear the cells at the placement's current position so they don't
+        // bleed through after the placement is removed.
+        const newRows = p.rows.map((row, r) => {
+          if (r < placement.startRow || r >= placement.startRow + placement.tileRows) return row;
+          return row.map((cell, c) => {
+            const ci = c - placement.startCh;
+            if (ci < 0 || ci >= placement.channelMask.length) return cell;
+            if (!(placement.channelMask[ci] ?? true)) return cell;
+            return emptyCell();
+          });
+        });
+        return {
           ...p,
+          rows: newRows,
           clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.id !== placementId),
-        }
-      ),
+        };
+      }),
     }));
   },
 
@@ -564,10 +588,28 @@ export const useStore = create<Store>((set, get) => {
   deleteClip: (clipId) => {
     set((s) => ({
       clips: s.clips.filter((c) => c.id !== clipId),
-      patterns: s.patterns.map((p) => ({
-        ...p,
-        clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.clipId !== clipId),
-      })),
+      patterns: s.patterns.map((p) => {
+        const toRemove = (p.clipPlacements ?? []).filter((pl) => pl.clipId === clipId);
+        if (toRemove.length === 0) return p;
+        // Clear cells at each placement's current position before removing.
+        let rows = p.rows;
+        for (const placement of toRemove) {
+          rows = rows.map((row, r) => {
+            if (r < placement.startRow || r >= placement.startRow + placement.tileRows) return row;
+            return row.map((cell, c) => {
+              const ci = c - placement.startCh;
+              if (ci < 0 || ci >= placement.channelMask.length) return cell;
+              if (!(placement.channelMask[ci] ?? true)) return cell;
+              return emptyCell();
+            });
+          });
+        }
+        return {
+          ...p,
+          rows,
+          clipPlacements: (p.clipPlacements ?? []).filter((pl) => pl.clipId !== clipId),
+        };
+      }),
     }));
   },
 
@@ -875,6 +917,45 @@ export const useStore = create<Store>((set, get) => {
     get().rangeCopy();
     get().rangeClear();
   },
+
+  rangeMove: (toStartRow, toStartCh) =>
+    withUndo((s) => {
+      const r = s.range;
+      const pid = s.song.positions[s.transport.songPos];
+      const pattern = pid != null ? s.patterns.find((p) => p.id === pid) : undefined;
+      if (!r || !pattern) return {};
+      const rows = r.endRow - r.startRow;
+      const cols = r.endCh - r.startCh;
+      const toEndRow = toStartRow + rows;
+      const toEndCh  = toStartCh + cols;
+      // Snapshot source cells.
+      const buf: PatternCell[][] = [];
+      for (let ri = r.startRow; ri <= r.endRow; ri++) {
+        const row: PatternCell[] = [];
+        for (let ci = r.startCh; ci <= r.endCh; ci++) {
+          row.push({ ...(pattern.rows[ri]?.[ci] ?? emptyCell()) });
+        }
+        buf.push(row);
+      }
+      const newRows = pattern.rows.map((rowCells, ri) => {
+        return rowCells.map((cell, ci) => {
+          // Clear source (only if not overlapping with destination).
+          const inSrc = ri >= r.startRow && ri <= r.endRow && ci >= r.startCh && ci <= r.endCh;
+          const inDst = ri >= toStartRow && ri <= toEndRow && ci >= toStartCh && ci <= toEndCh;
+          if (inDst) {
+            const br = ri - toStartRow;
+            const bc = ci - toStartCh;
+            return { ...(buf[br]?.[bc] ?? emptyCell()) };
+          }
+          if (inSrc) return emptyCell();
+          return cell;
+        });
+      });
+      return {
+        patterns: s.patterns.map((p) => p.id !== pid ? p : { ...p, rows: newRows }),
+        range: { startRow: toStartRow, endRow: toEndRow, startCh: toStartCh, endCh: toEndCh },
+      };
+    }),
 
   rangePaste: () =>
     withUndo((s) => {
@@ -1357,6 +1438,20 @@ export const useStore = create<Store>((set, get) => {
       return { midiMessages };
     }),
 
+  arpSequences: [],
+  setArpSequence: (seq) =>
+    set((s) => {
+      const existing = s.arpSequences.findIndex((a) => a.id === seq.id);
+      if (existing >= 0) {
+        const next = s.arpSequences.slice();
+        next[existing] = seq;
+        return { arpSequences: next };
+      }
+      return { arpSequences: [...s.arpSequences, seq].sort((a, b) => a.id - b.id) };
+    }),
+  removeArpSequence: (id) =>
+    set((s) => ({ arpSequences: s.arpSequences.filter((a) => a.id !== id) })),
+
   setTransport: (patch) => set((s) => ({ transport: { ...s.transport, ...patch } })),
 
   play: () => set((s) => ({ transport: { ...s.transport, playing: true } })),
@@ -1389,14 +1484,8 @@ export const useStore = create<Store>((set, get) => {
       flags[t] = { ...cur, solo: !cur.solo };
       return { trackFlags: flags };
     }),
-  clearSolo: () =>
-    set((s) => ({ trackFlags: s.trackFlags.map((f) => ({ ...f, solo: false })) })),
-  isAudible: (t) => {
-    const flags = get().trackFlags;
-    const anySolo = flags.some((f) => f.solo);
-    if (anySolo) return !!flags[t]?.solo;
-    return !flags[t]?.mute;
-  },
+  clearSolo: () => set((s) => ({ trackFlags: s.trackFlags.map((f) => ({ ...f, solo: false })) })),
+  isAudible: (t) => !get().trackFlags[t]?.mute,
 
   setBridge: (patch) => set((s) => ({ bridge: { ...s.bridge, ...patch } })),
   setPorts: (ports) => set({ ports }),
@@ -1561,13 +1650,14 @@ export const useStore = create<Store>((set, get) => {
       },
       trackFlags: Array.from({ length: CHANNELS }, (_, i) => ({
         mute: !!f.mutes[i],
-        solo: !!f.solos[i],
+        solo: false,   // solo removed — always load as false
       })),
       // Merge saved midiMessages on top of the default 16 slots (backward-compat).
       midiMessages: f.midiMessages
         ? Array.from({ length: 16 }, (_, i) => f.midiMessages![i] ?? s.midiMessages[i])
         : s.midiMessages,
       clips: f.clips ?? [],
+      arpSequences: f.arpSequences ?? [],
     })),
   }; // end of returned store object
 }); // end of create<Store>

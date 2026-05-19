@@ -498,7 +498,7 @@ export function SampleBrowser({ onClose }: Props) {
         finetune:          entry.finetune     ?? 0,
         defaultPitch: 60,
         suppressNoteOff: false,
-        attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 30, lengthRows: 0,
+        attackMs: 5, decayMs: 0, sustain: 1, releaseMs: 110, lengthRows: 0,
       };
 
       setInstrument(slot, inst);

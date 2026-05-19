@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/store';
 import type { SampleInstrument, SynthInstrument, MidiInstrument } from '../state/types';
 import { SynthEditor } from './SynthEditor';
+import { InfoPanel } from './InfoPanel';
 
 // ── PCM helpers ──────────────────────────────────────────────────────────────
 
@@ -385,7 +386,7 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
   // New state variables
   const [liveLoop,      setLiveLoop]      = useState(false);
   const [beatGridOn,    setBeatGridOn]    = useState(true);
-  const [showAdvanced,  setShowAdvanced]  = useState(false);
+  const [showAdvanced,  setShowAdvanced]  = useState(false); // unused — edit section always visible
   const [advDialog,     setAdvDialog]     = useState<null | 'echo' | 'changevol' | 'expand'>(null);
 
   // BPM-based pitch target
@@ -1052,43 +1053,48 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
           <span style={{ marginLeft:'auto', color:'#334455' }}>{pcmLen.toLocaleString()} smp · {sample.pcm ? `${sample.sampleRate} Hz` : '—'}</span>
         </div>
 
-        {/* 6. Three panels: TIMING | TUNE | SHAPE */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', background:'#000022' }}>
+        {/* 6. Four panels: TIMING | TUNE | ENVELOPE | INFO */}
+        {/* Shared compact nudge-button style */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 168px', background:'#000022' }}>
 
           {/* TIMING panel */}
           {(() => {
             const totalSt = bpmValid ? 12 * Math.log2(songBpm / sampleBpm) : 0;
             const fitTrans = bpmValid ? Math.trunc(totalSt) : 0;
             const fitFine  = bpmValid ? Math.round((totalSt - fitTrans) * 8) : 0;
+            const nudge: React.CSSProperties = { padding:'0 0.3rem', minWidth:'1.4rem', fontSize:'0.8rem', lineHeight:'1' };
             return (
               <div style={{ padding:'0.4rem 0.5rem', borderRight:'2px solid #000' }}>
                 <div style={{ color:'#FF8800', fontSize:'0.72rem', letterSpacing:'0.08em', borderBottom:'1px solid rgba(255,136,0,0.3)', marginBottom:'0.4rem', paddingBottom:'0.15rem' }}>TIMING</div>
-                <div className="field-row" style={{ marginBottom:'0.3rem' }}>
+                {/* BPM nudge row */}
+                <div className="field-row" style={{ marginBottom:'0.25rem' }}>
                   <label style={{ color:'#AADDFF' }}>BPM</label>
-                  <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
+                  <button className="btn" type="button" style={nudge}
                     onClick={() => { const v = parseFloat(sampleBpmStr); if (!isNaN(v)) setSampleBpmStr(String(Math.max(20, v - 1))); }}>−</button>
                   <input type="number" min={20} max={400} step={0.5} value={sampleBpmStr} placeholder="—"
                     onChange={e => setSampleBpmStr(e.target.value)}
                     style={{ width:'6ch', textAlign:'center' }} />
-                  <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
+                  <button className="btn" type="button" style={nudge}
                     onClick={() => { const v = parseFloat(sampleBpmStr); if (!isNaN(v)) setSampleBpmStr(String(Math.min(400, v + 1))); }}>+</button>
+                </div>
+                {/* DETECT / USE SONG / GRID row */}
+                <div style={{ display:'flex', gap:'0.25rem', flexWrap:'wrap', alignItems:'center', marginBottom:'0.25rem' }}>
                   <button className="btn" type="button"
                     disabled={!sample.pcm || bpmDetecting}
                     onClick={() => { if (!sample.pcm) return; setBpmDetecting(true); setTimeout(() => { const r = detectBpm(sample.pcm!, sample.sampleRate); setSampleBpmStr(String(r)); setBpmDetecting(false); }, 0); }}
-                    style={{ color:'#FFD700' }}>{bpmDetecting ? '…' : 'DETECT'}</button>
-                </div>
-                <div className="field-row" style={{ marginBottom:'0.3rem' }}>
+                    style={{ color:'#FFD700', fontSize:'0.72rem' }}>{bpmDetecting ? '…' : 'DETECT'}</button>
                   <button className="btn" type="button" onClick={() => setSampleBpmStr(String(songBpm))}
                     style={{ color: sampleBpmStr === String(songBpm) ? '#FFD700' : undefined, fontSize:'0.72rem' }}>
-                    USE SONG ({songBpm})
+                    ={songBpm}
                   </button>
-                  <label style={{ display:'inline-flex', gap:'0.25rem', alignItems:'center', cursor:'pointer', fontFamily:'var(--font-mono)', fontSize:'0.72rem', marginLeft:'0.4rem' }}>
+                  <label style={{ display:'inline-flex', gap:'0.2rem', alignItems:'center', cursor:'pointer', fontFamily:'var(--font-mono)', fontSize:'0.72rem' }}>
                     <input type="checkbox" checked={beatGridOn} onChange={e => setBeatGridOn(e.target.checked)} />
                     <span style={{ color: beatGridOn ? '#FFD700' : '#556688' }}>GRID</span>
                   </label>
                 </div>
+                {/* Bar snap buttons */}
                 {bpmValid && barSamplesVal > 0 && (
-                  <div style={{ display:'flex', gap:'0.25rem', flexWrap:'wrap', marginBottom:'0.3rem' }}>
+                  <div style={{ display:'flex', gap:'0.2rem', flexWrap:'wrap', marginBottom:'0.25rem' }}>
                     <span style={{ color:'#FFD700', fontSize:'0.7rem', alignSelf:'center' }}>Snap:</span>
                     {([1,2,4,8] as const).map(n => {
                       const end = Math.round(sample.loopStart + n * barSamplesVal) - 1;
@@ -1103,14 +1109,16 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
                     })}
                   </div>
                 )}
-                <div className="field-row">
-                  <label style={{ color:'#AADDFF' }} title="Auto-stop sample after N rows (0 = play until note-off)">LEN ROWS</label>
+                {/* Note length: how many pattern rows this sample plays before auto-stopping */}
+                <div className="field-row" style={{ marginBottom:'0.25rem' }}>
+                  <label style={{ color:'#AADDFF', fontSize:'0.7rem' }} title="Stop sample after N pattern rows (0 = play until next note)">NOTE LEN</label>
                   <input type="number" min={0} max={512} value={sample.lengthRows}
                     onChange={e => setInstrument(idx, { ...sample, lengthRows: Math.max(0,Math.min(512,Number(e.target.value))) } as SampleInstrument)}
                     style={{ width:'4ch' }} />
+                  <span style={{ color:'#334455', fontSize:'0.7rem' }}>rows</span>
                 </div>
                 {bpmValid && Math.abs(sampleBpm - songBpm) > 0.5 && (
-                  <div style={{ marginTop:'0.3rem', display:'flex', gap:'0.3rem', alignItems:'center' }}>
+                  <div style={{ display:'flex', gap:'0.3rem', alignItems:'center' }}>
                     <span style={{ color:'#6699BB', fontSize:'0.72rem', fontFamily:'var(--font-mono)' }}>
                       fit: {fitTrans > 0 ? '+' : ''}{fitTrans}st {fitFine > 0 ? '+' : ''}{fitFine}/8
                     </span>
@@ -1125,169 +1133,142 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
           })()}
 
           {/* TUNE panel */}
-          <div style={{ padding:'0.4rem 0.5rem', borderRight:'2px solid #000' }}>
-            <div style={{ color:'#FF8800', fontSize:'0.72rem', letterSpacing:'0.08em', borderBottom:'1px solid rgba(255,136,0,0.3)', marginBottom:'0.4rem', paddingBottom:'0.15rem' }}>TUNE</div>
-            <div className="field-row" style={{ marginBottom:'0.3rem' }}>
-              <label style={{ color:'#AADDFF' }} title="Semitone transpose (-48..+48)">TRANS</label>
-              <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
-                onClick={() => setInstrument(idx, { ...sample, transpose: Math.max(-48, sample.transpose - 1) } as SampleInstrument)}>−</button>
-              <input type="number" min={-48} max={48} value={sample.transpose}
-                onChange={e => setInstrument(idx, { ...sample, transpose: Math.max(-48,Math.min(48,Number(e.target.value))) } as SampleInstrument)}
-                style={{ width:'4ch', textAlign:'center' }} />
-              <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
-                onClick={() => setInstrument(idx, { ...sample, transpose: Math.min(48, sample.transpose + 1) } as SampleInstrument)}>+</button>
-            </div>
-            <div className="field-row" style={{ marginBottom:'0.3rem' }}>
-              <label style={{ color:'#AADDFF' }} title="Fine-tune: -8..+7 (1/8 semitone steps)">FINE</label>
-              <input type="number" min={-8} max={7} value={sample.finetune}
-                onChange={e => setInstrument(idx, { ...sample, finetune: Math.max(-8,Math.min(7,Number(e.target.value))) } as SampleInstrument)}
-                style={{ width:'3ch', textAlign:'center' }} />
-            </div>
-            <div className="field-row" style={{ marginBottom:'0.3rem' }}>
-              <label style={{ color:'#AADDFF' }} title="Default entry pitch for F-key shortcut">DEF ♪</label>
-              <input type="number" min={0} max={127} value={sample.defaultPitch}
-                onChange={e => setInstrument(idx, { ...sample, defaultPitch: Math.max(0,Math.min(127,Number(e.target.value))) } as SampleInstrument)}
-                style={{ width:'4ch' }} />
-              <span style={{ color:'#556688', fontSize:'0.8em', margin:'0 0.2rem' }}>→</span>
-              <span style={{ color:'#88BBFF', fontFamily:'var(--font-mono)', fontSize:'0.85em' }}
-                title={`Plays at: base ${noteName(sample.baseNote)} + ${sample.transpose}st + ${sample.finetune}/8st`}>
-                {noteName(Math.max(0,Math.min(127, sample.baseNote + sample.transpose)))}
-              </span>
-            </div>
-            <div className="field-row" style={{ marginBottom:'0.4rem' }}>
-              <button className="btn" type="button" disabled={!sample.pcm}
-                onClick={() => { if (sample.pcm) playPcmAtPitch(sample.pcm, sample.sampleRate, sample.transpose, sample.finetune); }}
-                style={{ fontFamily:'var(--font-mono)' }}>▶ TEST</button>
-            </div>
-            {/* BPM-based pitch targeting — shown when sample BPM is known */}
-            {bpmValid && (() => {
-              const targetBpm = parseFloat(targetBpmStr || String(songBpm));
-              const tgtValid  = isFinite(targetBpm) && targetBpm > 20 && targetBpm < 400;
-              const totalSt   = tgtValid ? 12 * Math.log2(targetBpm / sampleBpm) : 0;
-              const fitTrans  = Math.trunc(totalSt);
-              const fitFine   = Math.round((totalSt - fitTrans) * 8);
-              const displayTgt = targetBpmStr || String(songBpm);
-              return (
-                <div style={{ borderTop:'1px solid #334', paddingTop:'0.35rem', marginTop:'0.2rem' }}>
-                  <div style={{ color:'#FFD700', fontSize:'0.68rem', letterSpacing:'0.06em', marginBottom:'0.3rem', fontFamily:'var(--font-mono)' }}>
-                    BPM TARGET
-                  </div>
-                  <div className="field-row" style={{ marginBottom:'0.25rem' }}>
-                    <label style={{ color:'#AADDFF', fontSize:'0.7rem' }} title={`Pitch this ${sampleBpm} BPM sample to a target BPM`}>TO</label>
-                    <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
-                      onClick={() => {
-                        const v = parseFloat(displayTgt);
-                        if (!isNaN(v)) setTargetBpmStr(String(Math.max(20, Math.round((v - 1) * 10) / 10)));
-                      }}>−</button>
-                    <input type="number" min={20} max={400} step={0.5}
-                      value={displayTgt}
-                      onChange={e => setTargetBpmStr(e.target.value)}
-                      style={{ width:'6ch', textAlign:'center' }} />
-                    <button className="btn" type="button" style={{ padding:'0 0.3rem', minWidth:0 }}
-                      onClick={() => {
-                        const v = parseFloat(displayTgt);
-                        if (!isNaN(v)) setTargetBpmStr(String(Math.min(400, Math.round((v + 1) * 10) / 10)));
-                      }}>+</button>
-                  </div>
-                  {tgtValid && (
-                    <div style={{ display:'flex', gap:'0.35rem', alignItems:'center', flexWrap:'wrap' }}>
-                      <span style={{ fontFamily:'var(--font-mono)', fontSize:'0.7rem', color: Math.abs(totalSt) < 0.05 ? '#556688' : '#88BBFF' }}>
-                        {fitTrans > 0 ? '+' : ''}{fitTrans}st {fitFine > 0 ? '+' : ''}{fitFine}/8
-                      </span>
-                      <button className="btn" type="button"
-                        disabled={Math.abs(totalSt) < 0.05}
-                        style={{ fontSize:'0.72rem', color:'#FFD700', padding:'0 0.4rem' }}
-                        onClick={() => setInstrument(idx, { ...sample, transpose: fitTrans, finetune: fitFine } as SampleInstrument)}>
-                        APPLY
-                      </button>
-                      <button className="btn" type="button"
-                        style={{ fontSize:'0.7rem', color:'#556688', padding:'0 0.3rem' }}
-                        title={`Reset to song BPM (${songBpm})`}
-                        onClick={() => setTargetBpmStr(String(songBpm))}>
-                        ={songBpm}
-                      </button>
-                    </div>
-                  )}
+          {(() => {
+            const nudge: React.CSSProperties = { padding:'0 0.3rem', minWidth:'1.4rem', fontSize:'0.8rem', lineHeight:'1' };
+            return (
+              <div style={{ padding:'0.4rem 0.5rem', borderRight:'2px solid #000' }}>
+                <div style={{ color:'#FF8800', fontSize:'0.72rem', letterSpacing:'0.08em', borderBottom:'1px solid rgba(255,136,0,0.3)', marginBottom:'0.4rem', paddingBottom:'0.15rem' }}>TUNE</div>
+                <div className="field-row" style={{ marginBottom:'0.25rem' }}>
+                  <label style={{ color:'#AADDFF' }} title="Semitone transpose (-48..+48)">TRANS</label>
+                  <button className="btn" type="button" style={nudge}
+                    onClick={() => setInstrument(idx, { ...sample, transpose: Math.max(-48, sample.transpose - 1) } as SampleInstrument)}>−</button>
+                  <input type="number" min={-48} max={48} value={sample.transpose}
+                    onChange={e => setInstrument(idx, { ...sample, transpose: Math.max(-48,Math.min(48,Number(e.target.value))) } as SampleInstrument)}
+                    style={{ width:'4ch', textAlign:'center' }} />
+                  <button className="btn" type="button" style={nudge}
+                    onClick={() => setInstrument(idx, { ...sample, transpose: Math.min(48, sample.transpose + 1) } as SampleInstrument)}>+</button>
                 </div>
-              );
-            })()}
-            <div style={{ borderTop:'1px solid #223', paddingTop:'0.3rem', marginTop:'0.3rem' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:'0.4rem', opacity:0.4 }} title="Planned: pitch shift without speed change (phase vocoder)">
-                <span style={{ color:'#AADDFF', fontSize:'0.72rem', fontFamily:'var(--font-mono)' }}>PITCH ONLY</span>
-                <span style={{ background:'#007733', color:'#88FF99', fontSize:'0.65rem', padding:'0 0.3rem' }}>future</span>
-                <button className="btn" type="button" disabled style={{ fontSize:'0.72rem' }}>OFF</button>
+                <div className="field-row" style={{ marginBottom:'0.25rem' }}>
+                  <label style={{ color:'#AADDFF' }} title="Fine-tune: -8..+7 (1/8 semitone steps)">FINE</label>
+                  <input type="number" min={-8} max={7} value={sample.finetune}
+                    onChange={e => setInstrument(idx, { ...sample, finetune: Math.max(-8,Math.min(7,Number(e.target.value))) } as SampleInstrument)}
+                    style={{ width:'3ch', textAlign:'center' }} />
+                </div>
+                <div className="field-row" style={{ marginBottom:'0.25rem' }}>
+                  <label style={{ color:'#AADDFF' }} title="Default entry pitch for F-key shortcut">DEF ♪</label>
+                  <input type="number" min={0} max={127} value={sample.defaultPitch}
+                    onChange={e => setInstrument(idx, { ...sample, defaultPitch: Math.max(0,Math.min(127,Number(e.target.value))) } as SampleInstrument)}
+                    style={{ width:'4ch' }} />
+                  <span style={{ color:'#88BBFF', fontFamily:'var(--font-mono)', fontSize:'0.85em', marginLeft:'0.2rem' }}>
+                    {noteName(Math.max(0,Math.min(127, sample.baseNote + sample.transpose)))}
+                  </span>
+                </div>
+                <div className="field-row" style={{ marginBottom:'0.4rem' }}>
+                  <button className="btn" type="button" disabled={!sample.pcm}
+                    onClick={() => { if (sample.pcm) playPcmAtPitch(sample.pcm, sample.sampleRate, sample.transpose, sample.finetune); }}>
+                    ▶ TEST
+                  </button>
+                </div>
+                {/* BPM-based pitch targeting */}
+                {bpmValid && (() => {
+                  const targetBpm = parseFloat(targetBpmStr || String(songBpm));
+                  const tgtValid  = isFinite(targetBpm) && targetBpm > 20 && targetBpm < 400;
+                  const totalSt   = tgtValid ? 12 * Math.log2(targetBpm / sampleBpm) : 0;
+                  const fitTrans  = Math.trunc(totalSt);
+                  const fitFine   = Math.round((totalSt - fitTrans) * 8);
+                  const displayTgt = targetBpmStr || String(songBpm);
+                  return (
+                    <div style={{ borderTop:'1px solid #334', paddingTop:'0.3rem' }}>
+                      <div style={{ color:'#FFD700', fontSize:'0.68rem', marginBottom:'0.25rem', fontFamily:'var(--font-mono)' }}>BPM TARGET</div>
+                      <div className="field-row" style={{ marginBottom:'0.2rem' }}>
+                        <label style={{ color:'#AADDFF', fontSize:'0.7rem' }}>TO</label>
+                        <button className="btn" type="button" style={nudge}
+                          onClick={() => { const v = parseFloat(displayTgt); if (!isNaN(v)) setTargetBpmStr(String(Math.max(20, v - 1))); }}>−</button>
+                        <input type="number" min={20} max={400} step={0.5} value={displayTgt}
+                          onChange={e => setTargetBpmStr(e.target.value)}
+                          style={{ width:'6ch', textAlign:'center' }} />
+                        <button className="btn" type="button" style={nudge}
+                          onClick={() => { const v = parseFloat(displayTgt); if (!isNaN(v)) setTargetBpmStr(String(Math.min(400, v + 1))); }}>+</button>
+                      </div>
+                      {tgtValid && (
+                        <div style={{ display:'flex', gap:'0.3rem', alignItems:'center' }}>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:'0.7rem', color: Math.abs(totalSt) < 0.05 ? '#556688' : '#88BBFF' }}>
+                            {fitTrans > 0 ? '+' : ''}{fitTrans}st {fitFine > 0 ? '+' : ''}{fitFine}/8
+                          </span>
+                          <button className="btn" type="button" disabled={Math.abs(totalSt) < 0.05}
+                            style={{ fontSize:'0.72rem', color:'#FFD700' }}
+                            onClick={() => setInstrument(idx, { ...sample, transpose: fitTrans, finetune: fitFine } as SampleInstrument)}>
+                            APPLY
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
-          {/* SHAPE (Envelope) panel */}
+          {/* ENVELOPE panel */}
           <div style={{ padding:'0.4rem 0.5rem' }}>
             <div style={{ color:'#FF8800', fontSize:'0.72rem', letterSpacing:'0.08em', borderBottom:'1px solid rgba(255,136,0,0.3)', marginBottom:'0.4rem', paddingBottom:'0.15rem' }}>ENVELOPE</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:'0.25rem', marginBottom:'0.4rem' }}>
-              {([
-                { key:'attackMs',  label:'ATK', unit:'ms',  min:0, max:5000, step:1 },
-                { key:'decayMs',   label:'DEC', unit:'ms',  min:0, max:5000, step:1 },
-                { key:'sustain',   label:'SUS', unit:'0-1', min:0, max:1,    step:0.05 },
-                { key:'releaseMs', label:'REL', unit:'ms',  min:0, max:5000, step:1 },
-              ] as const).map(({ key, label, unit, min, max, step }) => (
-                <div key={key} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:'2px' }}>
-                  <span style={{ color:'#AADDFF', fontSize:'0.65rem', fontFamily:'var(--font-mono)' }}>{label}</span>
-                  <input type="number" min={min} max={max} step={step}
-                    value={(sample as unknown as Record<string, number>)[key]}
-                    onChange={e => setInstrument(idx, { ...sample, [key]: Math.max(min,Math.min(max,Number(e.target.value))) } as SampleInstrument)}
-                    style={{ width:'100%', textAlign:'center', fontFamily:'var(--font-mono)', fontSize:'0.75rem' }} />
-                  <span style={{ color:'#334455', fontSize:'0.6rem' }}>{unit}</span>
-                </div>
-              ))}
-            </div>
-            <div style={{ borderTop:'1px solid #223', paddingTop:'0.3rem' }}>
+            {([
+              { key:'attackMs',  label:'ATK', unit:'ms',  min:0, max:5000, step:1 },
+              { key:'decayMs',   label:'DEC', unit:'ms',  min:0, max:5000, step:1 },
+              { key:'sustain',   label:'SUS', unit:'',    min:0, max:1,    step:0.05 },
+              { key:'releaseMs', label:'REL', unit:'ms',  min:0, max:5000, step:1 },
+            ] as const).map(({ key, label, unit, min, max, step }) => (
+              <div key={key} className="field-row" style={{ marginBottom:'0.25rem' }}>
+                <label style={{ color:'#AADDFF' }}>{label}</label>
+                <input type="number" min={min} max={max} step={step}
+                  value={(sample as unknown as Record<string, number>)[key]}
+                  onChange={e => setInstrument(idx, { ...sample, [key]: Math.max(min,Math.min(max,Number(e.target.value))) } as SampleInstrument)}
+                  style={{ width:'6ch', textAlign:'center' }} />
+                {unit && <span style={{ color:'#556688', fontSize:'0.7rem' }}>{unit}</span>}
+              </div>
+            ))}
+            <div style={{ borderTop:'1px solid #223', paddingTop:'0.3rem', marginTop:'0.1rem' }}>
               <label style={{ display:'inline-flex', gap:'0.3rem', alignItems:'center', cursor:'pointer', fontFamily:'var(--font-mono)', fontSize:'0.72rem' }}
                 title="Ignore note-off — sample plays to its end regardless of note length (for percussion one-shots)">
                 <input type="checkbox" checked={sample.suppressNoteOff}
                   onChange={e => setInstrument(idx, { ...sample, suppressNoteOff: e.target.checked } as SampleInstrument)} />
-                <span style={{ color: sample.suppressNoteOff ? '#FF8800' : '#AADDFF' }}>SUP.OFF</span>
+                <span style={{ color: sample.suppressNoteOff ? '#FF8800' : '#AADDFF' }}>ONE-SHOT</span>
               </label>
-              <div style={{ color:'#334455', fontSize:'0.65rem', fontFamily:'var(--font-mono)', marginTop:'0.25rem', lineHeight:1.3 }}>
-                Enable for cymbals / one-shots: plays to end regardless of note length
-              </div>
             </div>
+          </div>
+
+          {/* INFO panel — 4th column */}
+          <div style={{ borderLeft:'2px solid #000', overflowY:'auto', overflowX:'hidden' }}>
+            <InfoPanel />
           </div>
         </div>
 
-        {/* 7. Advanced edit section (collapsible) */}
-        <div style={{ borderTop:'2px solid #000', background:'#000011' }}>
-          <button type="button"
-            onClick={() => setShowAdvanced(v => !v)}
-            style={{ width:'100%', padding:'0.2rem 0.5rem', background:'transparent', border:'none', color:'#445566', fontFamily:'var(--font-mono)', fontSize:'0.72rem', textAlign:'left', cursor:'pointer', letterSpacing:'0.05em' }}>
-            {showAdvanced ? '▾' : '▸'} ADVANCED EDIT — cut / copy / paste / reverse / echo / vol / trim
-          </button>
-          {showAdvanced && (
-            <div style={{ padding:'0.25rem 0.4rem', background:'#000022' }}>
-              {/* Edit selection row */}
-              <div style={{ display:'flex', gap:'0.3rem', flexWrap:'wrap', alignItems:'center', marginBottom:'0.25rem' }}>
-                <span style={{ fontFamily:'var(--font-mono)', fontSize:'0.7rem', color:'#556688' }}>SEL</span>
-                <button className="btn" type="button" disabled={!pcmLen} onClick={() => { setSelStart(0); setSelEnd(pcmLen-1); }}>All</button>
-                <button className="btn" type="button" disabled={!sel} onClick={() => { setSelStart(null); setSelEnd(null); }}>Desel</button>
-                <div style={{ width:'1px', background:'#0055AA', alignSelf:'stretch' }} />
-                <button className="btn" type="button" disabled={!sel || !sample.pcm} onClick={opErase}>Erase</button>
-                <button className="btn" type="button" disabled={!sel} onClick={opCopy}>Copy</button>
-                <button className="btn" type="button" disabled={!sel} onClick={opCut}>Cut</button>
-                <button className="btn" type="button" disabled={!hasClip} onClick={opPaste}>Paste</button>
-                <button className="btn" type="button" disabled={!sel} onClick={opReverse}>Reverse</button>
-                <div style={{ width:'1px', background:'#0055AA', alignSelf:'stretch' }} />
-                <button className="btn" type="button" disabled={!sample.pcm} onClick={opTrim}>Trim Silence</button>
-                <button className="btn" type="button" disabled={!sample.pcm || sample.loopEnd <= sample.loopStart} onClick={opTrimToLoop}
-                  style={{ color: sample.pcm && sample.loopEnd > sample.loopStart ? '#00CCFF' : undefined }}>Trim to Loop</button>
-                <button className="btn" type="button"
-                  onClick={() => setAdvDialog(advDialog === 'echo' ? null : 'echo')}
-                  style={{ color: advDialog === 'echo' ? '#FF8800' : undefined }}>Echo</button>
-                <button className="btn" type="button"
-                  onClick={() => setAdvDialog(advDialog === 'changevol' ? null : 'changevol')}
-                  style={{ color: advDialog === 'changevol' ? '#FF8800' : undefined }}>Change Vol</button>
-                <button className="btn" type="button"
-                  onClick={() => setAdvDialog(advDialog === 'expand' ? null : 'expand')}
-                  style={{ color: advDialog === 'expand' ? '#FF8800' : undefined }}>Expand</button>
-              </div>
+        {/* 7. Edit buttons — always visible */}
+        <div style={{ borderTop:'2px solid #000', background:'#000022', padding:'0.25rem 0.4rem' }}>
+          <div style={{ display:'flex', gap:'0.3rem', flexWrap:'wrap', alignItems:'center', marginBottom:'0.25rem' }}>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:'0.7rem', color:'#556688' }}>SEL</span>
+            <button className="btn" type="button" disabled={!pcmLen} onClick={() => { setSelStart(0); setSelEnd(pcmLen-1); }}>All</button>
+            <button className="btn" type="button" disabled={!sel} onClick={() => { setSelStart(null); setSelEnd(null); }}>Desel</button>
+            <div style={{ width:'1px', background:'#0055AA', alignSelf:'stretch' }} />
+            <button className="btn" type="button" disabled={!sel || !sample.pcm} onClick={opErase}>Erase</button>
+            <button className="btn" type="button" disabled={!sel} onClick={opCopy}>Copy</button>
+            <button className="btn" type="button" disabled={!sel} onClick={opCut}>Cut</button>
+            <button className="btn" type="button" disabled={!hasClip} onClick={opPaste}>Paste</button>
+            <button className="btn" type="button" disabled={!sel} onClick={opReverse}>Reverse</button>
+            <div style={{ width:'1px', background:'#0055AA', alignSelf:'stretch' }} />
+            <button className="btn" type="button" disabled={!sample.pcm} onClick={opTrim}>Trim Silence</button>
+            <button className="btn" type="button" disabled={!sample.pcm || sample.loopEnd <= sample.loopStart} onClick={opTrimToLoop}
+              style={{ color: sample.pcm && sample.loopEnd > sample.loopStart ? '#00CCFF' : undefined }}>Trim to Loop</button>
+            <button className="btn" type="button"
+              onClick={() => setAdvDialog(advDialog === 'echo' ? null : 'echo')}
+              style={{ color: advDialog === 'echo' ? '#FF8800' : undefined }}>Echo</button>
+            <button className="btn" type="button"
+              onClick={() => setAdvDialog(advDialog === 'changevol' ? null : 'changevol')}
+              style={{ color: advDialog === 'changevol' ? '#FF8800' : undefined }}>Change Vol</button>
+            <button className="btn" type="button"
+              onClick={() => setAdvDialog(advDialog === 'expand' ? null : 'expand')}
+              style={{ color: advDialog === 'expand' ? '#FF8800' : undefined }}>Expand</button>
+          </div>
               {/* Advanced dialogs (echo / changevol / expand) */}
               {advDialog && (
                 <div style={{ display:'flex', gap:'0.4rem', flexWrap:'wrap' }}>
@@ -1346,10 +1327,7 @@ export function SampleEditor({ onOpenLibrary }: SampleEditorProps = {}) {
                 </div>
               )}
             </div>
-          )}
         </div>
-
-      </div>
     </>
   );
 }

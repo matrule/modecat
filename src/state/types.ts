@@ -15,6 +15,7 @@ export const CHANNELS = 16;
 export const ROWS_PER_PATTERN = 64;
 export const MAX_INSTRUMENTS = 32;
 
+
 /** A note as a MIDI note number (12 = C-0, 60 = C-4). 0 means "empty". */
 export type NoteValue = number;
 
@@ -389,6 +390,21 @@ export interface MidiMessage {
   bytes: number[];   // raw MIDI bytes, e.g. [0xB0, 0x07, 0x64]
 }
 
+/**
+ * A user-defined arpeggio sequence, triggered by effect cmd 0x20+id.
+ * Steps are semitone offsets from the base note, e.g. [0,3,7,12,7,3].
+ * Advances one step per row while the note sustains.
+ */
+export interface ArpSequence {
+  /** 0..15 — maps to effect cmd 0x20..0x2F displayed as "20".."2F". */
+  id: number;
+  name: string;
+  /** Semitone offsets from triggered note, e.g. [0, 3, 7, 12]. */
+  steps: number[];
+  /** When true, sequence loops back to step 0 after the last step. */
+  loop: boolean;
+}
+
 /** Song bundle for JSON round-trip. */
 export interface SongFile {
   format: 'modecat';
@@ -405,6 +421,8 @@ export interface SongFile {
   midiMessages?: MidiMessage[];
   /** Reusable clip definitions. */
   clips?: Clip[];
+  /** User-defined arpeggio sequences (cmd 0x20..0x2F). */
+  arpSequences?: ArpSequence[];
 }
 
 // ── Drum machine ──────────────────────────────────────────────────────────────

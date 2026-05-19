@@ -193,7 +193,7 @@ export function SampleListEditor({ onClose }: Props) {
         finetune: existing && existing.kind !== 'empty' ? (existing as SampleInstrument).finetune ?? 0 : 0,
         defaultPitch: 60,
         suppressNoteOff: false,
-        attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 0, lengthRows: 0,
+        attackMs: 5, decayMs: 0, sustain: 1, releaseMs: 110, lengthRows: 0,
       };
       setInstrument(slot, base);
       setStatus(`✓ Loaded "${name}" → slot ${slot.toString(16).toUpperCase().padStart(2,'0')}`);

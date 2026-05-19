@@ -11,15 +11,10 @@
  */
 
 import type { DrumKit, KitVoice } from '../data/drumkits';
-import type { SampleInstrument } from '../state/types';
+import { MAX_INSTRUMENTS, type SampleInstrument } from '../state/types';
 import { useStore } from '../state/store';
 
 export interface LoadKitOptions {
-  /**
-   * If true, overwrite existing instruments starting at slot 1.
-   * If false (default), find free ('empty') slots.
-   */
-  overwrite?: boolean;
   /**
    * Maximum number of voices to load (defaults to all voices in the kit,
    * capped at the number of drum voices in drumConfig).
@@ -78,50 +73,50 @@ async function fetchAndDecode(url: string): Promise<{ pcm: Float32Array; sampleR
 }
 
 /**
- * Resolve instrument slots for loading a kit.
+ * Find empty instrument slots for a kit load, scanning from the HIGH end of the
+ * table downward so drum samples naturally land away from regular instruments
+ * without reserving or locking any fixed range.
  *
- * Priority order:
- *  1. If `overwrite` is true → use slots 1..count unconditionally.
- *  2. If drum voices already have instrument slots assigned → reuse those same
- *     slots so that re-loading a kit replaces the existing voice samples rather
- *     than consuming a fresh run of empty slots each time.
- *  3. Otherwise → find the first `count` free (kind === 'empty') slots.
+ * Re-use rule: if drum voices already point at specific slots AND those slots
+ * still contain sample instruments (not user content that replaced them), reuse
+ * those exact slots so reloading a kit is non-destructive.
  */
-function findFreeSlots(
+function findDrumSlots(
   instruments: ReturnType<typeof useStore.getState>['instruments'],
   count: number,
-  overwrite: boolean,
-  drumVoices?: ReturnType<typeof useStore.getState>['drumConfig']['voices'],
+  drumVoices: ReturnType<typeof useStore.getState>['drumConfig']['voices'],
 ): number[] {
-  if (overwrite) {
-    return Array.from({ length: count }, (_, i) => i + 1);
-  }
+  // Only re-use existing voice slots if every one still holds a sample (drum content).
+  const existing = drumVoices
+    .slice(0, count)
+    .map((v) => v.instrument)
+    .filter((s) => s > 0 && instruments[s]?.kind === 'sample');
+  if (existing.length === count) return existing;
 
-  // Re-use slots the drum voices already point to (handles "load kit again").
-  if (drumVoices) {
-    const existing = drumVoices.slice(0, count).map((v) => v.instrument).filter((s) => s > 0);
-    if (existing.length === count) return existing;
-  }
-
-  // Fall back to scanning for empty slots.
+  // Scan from the top of the table down so drums land in high slots by default.
   const slots: number[] = [];
-  for (let i = 1; i < instruments.length && slots.length < count; i++) {
+  for (let i = MAX_INSTRUMENTS - 1; i >= 1 && slots.length < count; i--) {
     if (instruments[i]?.kind === 'empty') slots.push(i);
   }
-  return slots;
+  // Return in ascending order so voice 0 → lowest slot, etc.
+  return slots.reverse();
 }
 
 /**
  * Load a drum kit into the store.
  *
+ * Slots are chosen from the top of the instrument table downward so they
+ * naturally stay out of the way of regular instruments without reserving
+ * any fixed range — any slot can still be used for anything.
+ *
  * Steps:
  *  1. Fetch + decode each WAV in parallel.
- *  2. Find free instrument slots (or overwrite from slot 1).
+ *  2. Find suitable slots (top-down scan or re-use existing voice slots).
  *  3. Write a SampleInstrument for each voice.
  *  4. Update drumConfig voices with the new instrument slot and voice name.
  */
 export async function loadKit(kit: DrumKit, options: LoadKitOptions = {}): Promise<LoadKitResult> {
-  const { overwrite = false, onProgress } = options;
+  const { onProgress } = options;
   const state = useStore.getState();
   const voiceCount = state.drumConfig.voices.length;
   const kitVoices = kit.voices.slice(0, voiceCount);
@@ -138,15 +133,15 @@ export async function loadKit(kit: DrumKit, options: LoadKitOptions = {}): Promi
     })
   );
 
-  // Find instrument slots.
+  // Find slots — scans from the top of the table so drums land in high slots.
   const successful = decoded.filter((d) => d.decoded !== null);
   const freshState = useStore.getState();
-  const slots = findFreeSlots(freshState.instruments, successful.length, overwrite, freshState.drumConfig.voices);
+  const slots = findDrumSlots(freshState.instruments, successful.length, freshState.drumConfig.voices);
 
   if (slots.length < successful.length) {
     return {
       loaded: 0,
-      error: `Not enough free instrument slots (need ${successful.length}, found ${slots.length}). Try overwriting existing instruments.`,
+      error: `Not enough free instrument slots (need ${successful.length}, found ${slots.length}).`,
     };
   }
 
@@ -176,10 +171,10 @@ export async function loadKit(kit: DrumKit, options: LoadKitOptions = {}): Promi
       finetune: 0,
       defaultPitch: voice.defaultNote,
       suppressNoteOff: voice.oneShot,
-      attackMs: 0,
+      attackMs: 5,
       decayMs: 0,
       sustain: 1,
-      releaseMs: voice.oneShot ? 0 : 20,
+      releaseMs: voice.oneShot ? 0 : 110,
       lengthRows: 0,
     };
 

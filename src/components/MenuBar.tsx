@@ -250,6 +250,8 @@ interface MenuBarProps {
   onSongOptions?: () => void;
   onBlockProps?: () => void;
   onMidiMessages?: () => void;
+  onMidiImport?: () => void;
+  onModImport?: () => void;
   onSampleList?: () => void;
   onInsertLine?: () => void;
   onDeleteLine?: () => void;
@@ -281,7 +283,7 @@ interface MenuBarProps {
   onPanic?: () => void;
 }
 
-export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming = 'B', onToggleNoteNaming, visibleTracks = 16, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic }: MenuBarProps = {}) {
+export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming = 'B', onToggleNoteNaming, visibleTracks = 16, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic }: MenuBarProps = {}) {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [showAbout, setShowAbout] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
@@ -306,7 +308,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic);
+  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic);
 
   function toggleMenu(idx: number) {
     setOpenMenu((prev) => (prev === idx ? null : idx));
@@ -388,6 +390,8 @@ function useMenuDefs(
   onSongOptions?: () => void,
   onBlockProps?: () => void,
   onMidiMessages?: () => void,
+  onMidiImport?: () => void,
+  onModImport?: () => void,
   onSampleList?: () => void,
   onInsertLine?: () => void,
   onDeleteLine?: () => void,
@@ -504,6 +508,8 @@ function useMenuDefs(
         { label: 'Open…', action: openLoad, shortcut: 'Ctrl+O' },
         { label: 'Save', action: () => openSave(true), shortcut: 'Ctrl+S' },
         { label: 'Save without instruments', action: () => openSave(false) },
+        { kind: 'sep' },
+        { label: 'Import MOD / S3M…', action: onModImport },
         { kind: 'sep' },
         { label: 'About', action: () => setShowAbout(true) },
       ],
@@ -854,6 +860,11 @@ function useMenuDefs(
           label: 'MIDI Active',
           checked: bridge.connected,
           disabled: true,   // connection is automatic via bridge; toggle is future
+        },
+        { kind: 'sep' },
+        {
+          label: 'Import MIDI File…',
+          action: onMidiImport,
         },
         { kind: 'sep' },
         {

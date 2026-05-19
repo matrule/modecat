@@ -113,8 +113,8 @@ export function InstrumentList() {
         const idx = i + 1;
         const count = usageCounts[idx] ?? 0;
         return (
+          <div key={idx}>
           <div
-            key={idx}
             className={[
               'inst-row',
               inst.kind === 'empty' ? 'is-empty' : '',
@@ -184,6 +184,7 @@ export function InstrumentList() {
               </span>
             )}
             <span className="kind">{kindLabel[inst.kind]}</span>
+          </div>
           </div>
         );
       })}

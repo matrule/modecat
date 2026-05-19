@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MenuBar } from './components/MenuBar';
 import { TransportBar } from './components/TransportBar';
 import { PatternEditor } from './components/PatternEditor';
@@ -21,14 +21,24 @@ import { BridgeClient } from './bridge/client';
 import { Sequencer } from './engine/sequencer';
 import { Oscilloscope } from './components/Oscilloscope';
 import { MidiMessagesDialog } from './components/MidiMessagesDialog';
+import { MidiImportDialog } from './components/MidiImportDialog';
+import type { MidiImportSettings } from './components/MidiImportDialog';
+import { parseMidiFile, buildPatternCells } from './engine/midiImport';
+import type { ImportResult } from './engine/midiImport';
 import { SampleListEditor } from './components/SampleListEditor';
 import { SampleBrowser } from './components/SampleBrowser';
 import { VolumeMixer } from './components/VolumeMixer';
 import { ClipPalette } from './components/ClipPalette';
 import { ClipEditor } from './components/ClipEditor';
+import EffectsPanel from './components/EffectsPanel';
+import { ModImportDialog } from './components/ModImportDialog';
+import type { ModImportOptions } from './components/ModImportDialog';
+import { parseTrackerFile } from './engine/modImport';
+import type { ModImportResult } from './engine/modImport';
 import { useStore } from './state/store';
 import { setNoteNamingMode } from './engine/notes';
-import type { Clip } from './state/types';
+import type { Clip, SampleInstrument } from './state/types';
+import { MAX_INSTRUMENTS } from './state/types';
 
 // MDI window state shape
 interface MdiState {
@@ -49,8 +59,8 @@ export default function App() {
   const canUndo = useStore((s) => s.canUndo());
   const canRedo = useStore((s) => s.canRedo());
 
-  // Left panel tab: 'song' | 'clips'
-  const [leftTab, setLeftTab] = useState<'song' | 'clips'>('song');
+  // Left panel tab: 'song' | 'clips' | 'fx'
+  const [leftTab, setLeftTab] = useState<'song' | 'clips' | 'fx'>('song');
   // Clip being edited in the ClipEditor MDI
   const [editingClip, setEditingClip] = useState<Clip | null>(null);
 
@@ -62,10 +72,159 @@ export default function App() {
   const [songOptsOpen, setSongOptsOpen] = useState(false);
   // Block Properties dialog — Block → Set Properties…
   const [blockPropsOpen, setBlockPropsOpen] = useState(false);
-  // MIDI Messages dialog — Instrument → MIDI Message Editor…
+  // MIDI Messages dialog — MIDI → MIDI Message Editor…
   const [midiMsgOpen, setMidiMsgOpen] = useState(false);
   // Sample List Editor — Instrument → Sample List Editor…
   const [sampleListOpen, setSampleListOpen] = useState(false);
+
+  // MIDI Import — MIDI → Import MIDI File…
+  const [midiImportResult, setMidiImportResult] = useState<ImportResult | null>(null);
+  const midiFileRef = useRef<Uint8Array | null>(null);
+  const midiFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleMidiFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    midiFileRef.current = bytes;
+    try {
+      const result = parseMidiFile(bytes);
+      setMidiImportResult(result);
+    } catch (err) {
+      console.error('MIDI parse error', err);
+      alert(`Could not parse MIDI file: ${(err as Error).message}`);
+    }
+    if (midiFileInputRef.current) midiFileInputRef.current.value = '';
+  }, []);
+
+  const handleMidiReparse = useCallback((rpb: number) => {
+    if (!midiFileRef.current) return;
+    try {
+      setMidiImportResult(parseMidiFile(midiFileRef.current, rpb));
+    } catch (err) {
+      console.error('MIDI reparse error', err);
+    }
+  }, []);
+
+  const handleMidiImport = useCallback((settings: MidiImportSettings) => {
+    const { rowsPerBar: importRowsPerBar, overwrite, trackMapping, instrumentBase, totalRows, bpm } = settings;
+    const MAX_ROWS = 3200;
+    const cappedRows = Math.min(totalRows, MAX_ROWS);
+    const result = midiImportResult!;
+    const cellGrid = buildPatternCells(result, trackMapping, instrumentBase, cappedRows);
+    const s = useStore.getState();
+    s.setTransport({ bpm });
+    if (overwrite) {
+      const pid = s.song.positions[s.transport.songPos];
+      if (pid != null) {
+        s.setPatternLength(cappedRows);
+        s.replacePatternRows(pid, cellGrid);
+      }
+    } else {
+      const currentPos = s.transport.songPos;
+      const newId = s.addPattern(currentPos);
+      s.replacePatternRows(newId, cellGrid);
+      s.insertSongPosition(s.song.positions.length, newId);
+    }
+    setMidiImportResult(null);
+  }, [midiImportResult]);
+
+  // MOD / S3M Import
+  const [modImportResult, setModImportResult] = useState<ModImportResult | null>(null);
+  const [modImportFilename, setModImportFilename] = useState('');
+  const modFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleModFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (modFileInputRef.current) modFileInputRef.current.value = '';
+    try {
+      const buf = await file.arrayBuffer();
+      const result = parseTrackerFile(buf, file.name);
+      setModImportFilename(file.name);
+      setModImportResult(result);
+    } catch (err) {
+      alert(`Could not parse tracker file: ${(err as Error).message}`);
+    }
+  }, []);
+
+  const handleModImport = useCallback((opts: ModImportOptions) => {
+    if (!modImportResult) return;
+    const { orderStart, orderEnd, replaceSong, instOffset } = opts;
+    const { instruments, patterns, orderList, bpm, speed } = modImportResult;
+    const s = useStore.getState();
+
+    // ── 1. Load instruments ──
+    instruments.forEach((inst, srcIdx) => {
+      if (srcIdx === 0 || !inst.pcm) return;
+      const slot = instOffset + srcIdx - 1;
+      if (slot < 1 || slot >= MAX_INSTRUMENTS) return;
+      const sampleInst: SampleInstrument = {
+        kind:            'sample',
+        name:            inst.name || `Sample ${srcIdx}`,
+        pcm:             inst.pcm,
+        sampleRate:      inst.sampleRate,
+        baseNote:        inst.baseNote,
+        volume:          inst.volume,
+        transpose:       0,
+        finetune:        inst.finetune,
+        defaultPitch:    inst.baseNote,
+        loopEnabled:     inst.loopEnabled,
+        loopStart:       inst.loopStart,
+        loopEnd:         inst.loopEnd,
+        suppressNoteOff: false,
+        attackMs:        5,
+        decayMs:         0,
+        sustain:         1,
+        releaseMs:       110,
+        lengthRows:      0,
+      };
+      s.setInstrument(slot, sampleInst);
+    });
+
+    // ── 2. Set BPM / speed ──
+    s.setTransport({ bpm, speed });
+
+    // ── 3. Build patterns ──
+    // IMPORTANT: addPattern() automatically appends each new id to song.positions.
+    // We capture the current positions first, let addPattern do its thing, then
+    // overwrite positions with the correct song order using setSongPositions.
+    const positionsBefore = useStore.getState().song.positions.slice();
+
+    const sliceOrders = orderList.slice(orderStart, orderEnd + 1);
+    // Deduplicate pattern indices so we create each unique pattern once
+    const patIdxSeen = new Map<number, number>(); // mod-patIdx → store patId
+
+    for (const modPatIdx of sliceOrders) {
+      if (patIdxSeen.has(modPatIdx)) continue;
+      const modRows = patterns[modPatIdx];
+      if (!modRows) continue;
+
+      // Remap instrument numbers: add (instOffset - 1) to each cell's instrument
+      const remapped = modRows.map(row =>
+        row.map(cell => ({
+          ...cell,
+          instrument: cell.instrument > 0
+            ? Math.min(MAX_INSTRUMENTS - 1, cell.instrument + instOffset - 1)
+            : 0,
+        }))
+      );
+
+      const newId = s.addPattern(); // also appends newId to positions — fixed below
+      s.replacePatternRows(newId, remapped);
+      patIdxSeen.set(modPatIdx, newId);
+    }
+
+    // ── 4. Set correct song positions in MOD song order ──
+    const modPositions = sliceOrders.map(modPatIdx => patIdxSeen.get(modPatIdx)!);
+    const newPositions = replaceSong
+      ? modPositions
+      : [...positionsBefore, ...modPositions];
+    useStore.getState().setSongPositions(newPositions);
+
+    setModImportResult(null);
+  }, [modImportResult]);
 
   // MDI window state — each editor is an independent floating window
   const nextZ = useRef(400);
@@ -249,6 +408,8 @@ export default function App() {
         onSongOptions={() => setSongOptsOpen(true)}
         onBlockProps={() => setBlockPropsOpen(true)}
         onMidiMessages={() => setMidiMsgOpen(true)}
+        onMidiImport={() => midiFileInputRef.current?.click()}
+        onModImport={() => modFileInputRef.current?.click()}
         onSampleList={() => setSampleListOpen(true)}
         onInsertLine={() => {
           const s = useStore.getState();
@@ -313,11 +474,15 @@ export default function App() {
               type="button"
               onClick={() => setLeftTab('clips')}
             >CLIPS</button>
+            <button
+              className={`left-tabs__tab${leftTab === 'fx' ? ' is-active' : ''}`}
+              type="button"
+              onClick={() => setLeftTab('fx')}
+            >FX</button>
           </div>
-          {leftTab === 'song'
-            ? <SongEditor />
-            : <ClipPalette onEdit={(clip) => setEditingClip(clip)} />
-          }
+          {leftTab === 'song' && <SongEditor />}
+          {leftTab === 'clips' && <ClipPalette onEdit={(clip) => setEditingClip(clip)} />}
+          {leftTab === 'fx' && <EffectsPanel />}
         </aside>
         <main className="modecat__main">
           <InfoBar />
@@ -359,6 +524,40 @@ export default function App() {
       {/* ── MIDI Messages dialog ─────────────────────────────────────────────── */}
       {midiMsgOpen && (
         <MidiMessagesDialog onClose={() => setMidiMsgOpen(false)} />
+      )}
+
+      {/* ── MIDI Import ────────────────────────────────────────────────────────── */}
+      <input
+        ref={midiFileInputRef}
+        type="file"
+        accept=".mid,.midi"
+        style={{ display: 'none' }}
+        onChange={handleMidiFileChange}
+      />
+      {midiImportResult && (
+        <MidiImportDialog
+          result={midiImportResult}
+          onReparse={handleMidiReparse}
+          onImport={handleMidiImport}
+          onClose={() => setMidiImportResult(null)}
+        />
+      )}
+
+      {/* ── MOD / S3M Import ─────────────────────────────────────────────────── */}
+      <input
+        ref={modFileInputRef}
+        type="file"
+        accept=".mod,.s3m"
+        style={{ display: 'none' }}
+        onChange={handleModFileChange}
+      />
+      {modImportResult && (
+        <ModImportDialog
+          result={modImportResult}
+          filename={modImportFilename}
+          onImport={handleModImport}
+          onCancel={() => setModImportResult(null)}
+        />
       )}
 
       {/* ── Sample List Editor ───────────────────────────────────────────────── */}

@@ -61,11 +61,19 @@ interface ChannelFxState {
   tremoloSpeed: number;
   /** Last non-zero tremolo depth nibble. */
   tremoloDepth: number;
+  // ── User arpeggio sequence (cmd 0x20..0x2F) ──────────────────────────────
+  /** Active sequence id (0..15), or -1 = none. */
+  arpSeqId: number;
+  /** Current step index within the sequence. */
+  arpStep: number;
+  /** Playback rate for the base (un-shifted) note; offsets are relative to this. */
+  arpBaseRate: number;
 }
 
 function makeChannelFxState(): ChannelFxState {
   return { lastNote: 0, portaTarget: 0, portaDir: 1, portaSpeed: 4, portaActive: false,
-           vibratoSpeed: 4, vibratoDepth: 4, tremoloSpeed: 4, tremoloDepth: 4 };
+           vibratoSpeed: 4, vibratoDepth: 4, tremoloSpeed: 4, tremoloDepth: 4,
+           arpSeqId: -1, arpStep: 0, arpBaseRate: 1 };
 }
 
 // ── Pitch program simulation ──────────────────────────────────────────────────
@@ -806,11 +814,67 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
           this.applyArpeggio(act.source, act.source.playbackRate.value, cell.data, tStart, msPerRow, msPerTick);
         }
       }
+      // User arpeggio sequence (2X xx) — advance one step per row while sustaining.
+      {
+        const st = this.channelFxState[ch];
+        if (st.arpSeqId >= 0 && act?.source) {
+          const seqs = useStore.getState().arpSequences;
+          const seq = seqs.find((s) => s.id === st.arpSeqId);
+          if (seq && seq.steps.length > 0) {
+            st.arpStep++;
+            if (st.arpStep >= seq.steps.length) {
+              if (seq.loop) {
+                st.arpStep = 0;
+              } else {
+                // Sequence finished — revert to base note, cancel.
+                st.arpSeqId = -1;
+                act.source.playbackRate.setValueAtTime(st.arpBaseRate, tStart);
+              }
+            }
+            if (st.arpSeqId >= 0) {
+              const offset = seq.steps[st.arpStep] ?? 0;
+              const newRate = st.arpBaseRate * Math.pow(2, offset / 12);
+              act.source.playbackRate.setValueAtTime(newRate, tStart);
+            }
+          } else {
+            st.arpSeqId = -1; // seq deleted/missing — cancel silently
+          }
+        }
+      }
       continue; // no new note to trigger
     }
 
       // Trigger the note.
       this.triggerCell(cell, ch, deltaMs, msPerRow, msPerTick, instruments, midiEvents, playTranspose);
+
+      // User arpeggio (2X): initialise carry state after note is triggered.
+      if (cell.cmd >= 0x20 && cell.cmd <= 0x2F) {
+        const seqId = cell.cmd - 0x20;
+        const st = this.channelFxState[ch];
+        st.arpSeqId   = seqId;
+        st.arpStep    = 0;
+        // Grab base playback rate from the newly triggered source (if sample).
+        const act = this.active[ch];
+        st.arpBaseRate = act?.source ? act.source.playbackRate.value : 1;
+        // Apply step 0 offset immediately (allows non-zero first step).
+        if (act?.source) {
+          const seqs = useStore.getState().arpSequences;
+          const seq = seqs.find((s) => s.id === seqId);
+          if (seq && seq.steps.length > 0) {
+            const offset = seq.steps[0] ?? 0;
+            if (offset !== 0) {
+              act.source.playbackRate.setValueAtTime(
+                st.arpBaseRate * Math.pow(2, offset / 12), tStart
+              );
+            }
+          } else {
+            st.arpSeqId = -1; // seq not found — cancel
+          }
+        }
+      } else {
+        // Any other note cancels a running user arpeggio on this channel.
+        this.channelFxState[ch].arpSeqId = -1;
+      }
     }
 
     if (portId && midiEvents.length) this.bridge.midiOut(portId, midiEvents);
@@ -957,7 +1021,7 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
         // If the prior note has a release tail, fade it out gracefully rather
         // than hard-cutting. cancelAndHoldAtTime freezes the gain at its
         // current scheduled value at tStart, then we ramp to 0 over releaseMs.
-        const priorReleaseMs = prior.releaseMs ?? 0;
+        const priorReleaseMs = prior.releaseMs ?? 110;
         if (prior.source && prior.gain && priorReleaseMs > 0) {
           const ctx = prior.source.context;
           const tNow = ctx.currentTime + deltaMs / 1000;
@@ -1063,13 +1127,16 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
 
     const lastNote = this.channelFxState[ch].lastNote;
 
-    // Apply instrument transpose + finetune, then one-shot pitch shift.
-    let effectiveNote = cell.note + inst.transpose + Math.round(inst.finetune / 8);
+    // Apply instrument transpose; keep finetune separate as a fractional semitone
+    // so it feeds directly into the playback rate rather than being rounded to
+    // the nearest whole note (which would cause a pitch step of up to ±0.5st).
+    let effectiveNote = cell.note + inst.transpose;
     effectiveNote = Math.max(1, Math.min(127, effectiveNote));
 
     // One-shot pitch offset (0x11/0x12); portamento overrides in a moment.
     const semidelta = cell.cmd === 0x11 ? cell.data : cell.cmd === 0x12 ? -cell.data : 0;
-    const baseRate = Math.pow(2, (effectiveNote - inst.baseNote + semidelta) / 12);
+    // finetune range: -8..+7 (each unit = 1/8 semitone). Include fractionally.
+    const baseRate = Math.pow(2, (effectiveNote - inst.baseNote + semidelta + inst.finetune / 8) / 12);
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -1150,7 +1217,7 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
     // Otherwise we fall back to a bare 3ms anti-click ramp (legacy behaviour).
     const hasEnv = (inst.attackMs ?? 0) > 0
                 || (inst.decayMs  ?? 0) > 0
-                || (inst.releaseMs ?? 0) > 0
+                || (inst.releaseMs ?? 110) > 0
                 || ((inst.sustain ?? 1) < 0.999 && (inst.sustain ?? 1) > 0)
                 || (inst.lengthRows ?? 0) > 0;
 
@@ -1161,14 +1228,14 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
     let sampleStopAt: number | undefined;
 
     if (hasEnv) {
-      const a   = Math.max(0.003, (inst.attackMs  ?? 0) / 1000);
+      const a   = Math.max(0.003, (inst.attackMs  ?? 5) / 1000);
       const d   = Math.max(0.001, (inst.decayMs   ?? 0) / 1000);
       const sus = Math.max(0, Math.min(1, inst.sustain ?? 1));
-      const r   = Math.max(0.001, (inst.releaseMs ?? 0) / 1000);
+      const r   = Math.max(0.001, (inst.releaseMs ?? 110) / 1000);
       const holdMs = cell.cmd === 0x18 && cell.data > 0
-        ? Math.max(0, cell.data * msPerTick - (inst.releaseMs ?? 0))
+        ? Math.max(0, cell.data * msPerTick - (inst.releaseMs ?? 110))
         : (inst.lengthRows ?? 0) > 0
-          ? Math.max(0, (inst.lengthRows ?? 0) * msPerRow - (inst.releaseMs ?? 0))
+          ? Math.max(0, (inst.lengthRows ?? 0) * msPerRow - (inst.releaseMs ?? 110))
           : undefined; // undefined = sustain until next note (loop/long sample)
 
       // Use tEnv (floored to never be in the past) so a late scheduler tick
@@ -1257,7 +1324,7 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
         source: src,
         gain,
         tremoTarget,
-        releaseMs: hasEnv ? (inst.releaseMs ?? 0) : 0,
+        releaseMs: hasEnv ? (inst.releaseMs ?? 110) : 0,
         // One-shot flag: when true the source is not stopped if a subsequent
         // note fires on this channel before the buffer finishes playing.
         suppressNoteOff: inst.suppressNoteOff,
@@ -1301,12 +1368,13 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
     src.buffer = buf;
     // No looping — the buffer contains the complete waveform sequence.
 
-    // Apply instrument transpose + finetune, then one-shot pitch offset or portamento.
-    let effectiveNote = cell.note + inst.transpose + Math.round(inst.finetune / 8);
+    // Apply instrument transpose; finetune is fractional (1/8 semitone per unit)
+    // and must not be rounded into the integer note — apply it in the rate calc.
+    let effectiveNote = cell.note + inst.transpose;
     effectiveNote = Math.max(1, Math.min(127, effectiveNote));
     const semidelta = cell.cmd === 0x11 ? cell.data : cell.cmd === 0x12 ? -cell.data : 0;
     const baseFreq = 440 * Math.pow(2, (inst.baseNote - 69) / 12);
-    const noteFreq = 440 * Math.pow(2, (effectiveNote + semidelta - 69) / 12);
+    const noteFreq = 440 * Math.pow(2, (effectiveNote + semidelta + inst.finetune / 8 - 69) / 12);
     const baseRate = noteFreq / baseFreq;
 
     const tStart = ctx.currentTime + deltaMs / 1000;
@@ -1447,7 +1515,7 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
       source: src,
       gain,
       tremoTarget,
-      releaseMs: inst.releaseMs ?? 0,
+      releaseMs: inst.releaseMs ?? 110,
     };
 
     // ── Vibrato ───────────────────────────────────────────────────────────
@@ -1500,10 +1568,10 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
         : buf.duration;
     }
 
-    let effectiveNote = cell.note + inst.transpose + Math.round(inst.finetune / 8);
+    let effectiveNote = cell.note + inst.transpose;
     effectiveNote = Math.max(1, Math.min(127, effectiveNote));
     const baseFreq = 440 * Math.pow(2, (inst.baseNote - 69) / 12);
-    const noteFreq = 440 * Math.pow(2, (effectiveNote - 69) / 12);
+    const noteFreq = 440 * Math.pow(2, (effectiveNote + inst.finetune / 8 - 69) / 12);
     const baseRate = noteFreq / baseFreq;
 
     const tStart = ctx.currentTime + deltaMs / 1000;
@@ -1584,7 +1652,7 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
       source: src,
       gain,
       tremoTarget,
-      releaseMs: inst.releaseMs ?? 0,
+      releaseMs: inst.releaseMs ?? 110,
     };
 
     if (cell.cmd === 0x04 || cell.cmd === 0x06) {

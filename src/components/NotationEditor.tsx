@@ -26,10 +26,6 @@ import {
 import { useStore, useActivePattern } from '../state/store';
 import { CHANNELS } from '../state/types';
 import { NOTE_HOLD } from '../engine/notes';
-import { parseMidiFile, buildPatternCells } from '../engine/midiImport';
-import type { ImportResult } from '../engine/midiImport';
-import { MidiImportDialog } from './MidiImportDialog';
-import type { MidiImportSettings } from './MidiImportDialog';
 
 // ── MIDI ↔ VexFlow ────────────────────────────────────────────────────────────
 
@@ -422,11 +418,6 @@ export function NotationEditor() {
    */
   const [beatsPerBar, setBeatsPerBar]           = useState(4);
 
-  // ── MIDI import state ──────────────────────────────────────────────────────
-  const midiFileRef        = useRef<Uint8Array | null>(null);
-  const fileInputRef       = useRef<HTMLInputElement>(null);
-  const [midiResult, setMidiResult] = useState<ImportResult | null>(null);
-
   const containerRef  = useRef<HTMLDivElement>(null);
   const hitMapRef     = useRef<HitEntry[]>([]);
   const [notationTruncated, setNotationTruncated] = useState(false);
@@ -495,104 +486,10 @@ export function NotationEditor() {
 
   // ── MIDI import handlers ───────────────────────────────────────────────────
 
-  const handleMidiFileChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const buf = await file.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      midiFileRef.current = bytes;
-      try {
-        const result = parseMidiFile(bytes);
-        setMidiResult(result);
-        // Sync rows/bar = rows-per-beat × beats-per-bar (tracker rows per musical bar)
-        setBeatsPerBar(result.timeSigNum);
-        setRowsPerBar(result.suggestedRowsPerBar);
-      } catch (err) {
-        console.error('MIDI parse error', err);
-        alert(`Could not parse MIDI file: ${(err as Error).message}`);
-      }
-      // Reset input so the same file can be re-selected
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    },
-    []
-  );
-
-  const handleMidiReparse = useCallback((rpb: number) => {
-    if (!midiFileRef.current) return;
-    try {
-      const result = parseMidiFile(midiFileRef.current, rpb);
-      setMidiResult(result);
-    } catch (err) {
-      console.error('MIDI reparse error', err);
-    }
-  }, []);
-
-  const handleMidiImport = useCallback(
-    (settings: MidiImportSettings) => {
-      const { rowsPerBar: importRowsPerBar, overwrite, trackMapping, instrumentBase, totalRows, bpm } = settings;
-
-      // ModeCat patterns support a maximum of 3200 rows.
-      // Cap here so we never write a pattern that freezes the tracker UI.
-      const MAX_ROWS = 3200;
-      const cappedRows = Math.min(totalRows, MAX_ROWS);
-
-      // Build the cell grid from the parsed result
-      const result = midiResult!;
-      const cellGrid = buildPatternCells(result, trackMapping, instrumentBase, cappedRows);
-
-      // Update BPM
-      setTransport({ bpm });
-
-      if (overwrite) {
-        // Write into the current pattern
-        const pid = useStore.getState().song.positions[
-          useStore.getState().transport.songPos
-        ];
-        if (pid != null) {
-          setPatternLength(cappedRows);
-          replacePatternRows(pid, cellGrid);
-        }
-      } else {
-        // Create a new pattern for the MIDI data.
-        const currentPos = useStore.getState().transport.songPos;
-        const newId = addPattern(currentPos);
-        replacePatternRows(newId, cellGrid);
-        insertSongPosition(useStore.getState().song.positions.length, newId);
-      }
-
-      // Sync rows/bar and beats/bar display from the MIDI time signature.
-      // rowsPerBar = rows-per-beat × beats-per-bar (total tracker rows per musical bar).
-      const beats = result.timeSigNum || 4;
-      setBeatsPerBar(beats);
-      setRowsPerBar(importRowsPerBar);
-      setMidiResult(null);
-    },
-    [midiResult, setTransport, setPatternLength, replacePatternRows, addPattern, insertSongPosition]
-  );
-
   const editCursor = cursor.editMode ? 'crosshair' : 'default';
 
   return (
     <div className="notation-editor">
-      {/* MIDI import dialog — rendered outside the scroll area so it's modal */}
-      {midiResult && (
-        <MidiImportDialog
-          result={midiResult}
-          onReparse={handleMidiReparse}
-          onImport={handleMidiImport}
-          onClose={() => setMidiResult(null)}
-        />
-      )}
-
-      {/* Hidden file input for MIDI loading */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".mid,.midi"
-        style={{ display: 'none' }}
-        onChange={handleMidiFileChange}
-      />
 
       {/* Header */}
       <div className="notation-editor__header">
@@ -628,16 +525,6 @@ export function NotationEditor() {
           title="12 rows/bar — 4/4 at 8th-note triplet resolution"
         >
           [12]
-        </button>
-
-        <button
-          type="button"
-          className="btn"
-          style={{ padding: '2px 6px' }}
-          onClick={() => fileInputRef.current?.click()}
-          title="Load a MIDI file into the current (or a new) block"
-        >
-          Load MIDI…
         </button>
 
         <span className="notation-editor__hint">

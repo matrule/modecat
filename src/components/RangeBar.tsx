@@ -9,10 +9,10 @@
 // The bar appears only when there's an active range. The cursor position is
 // the paste anchor.
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useStore } from '../state/store';
 
-const COMMANDS = [
+const BUILTIN_COMMANDS = [
   { cmd: 0x00, label: '00 — Arpeggio (xy = +x/+y semitones)' },
   { cmd: 0x01, label: '01 — Slide up (xx = speed)' },
   { cmd: 0x02, label: '02 — Slide down (xx = speed)' },
@@ -40,8 +40,18 @@ const COMMANDS = [
 ];
 
 export function RangeBar() {
-  const range = useStore((s) => s.range);
-  const copyBuffer = useStore((s) => s.copyBuffer);
+  const range        = useStore((s) => s.range);
+  const copyBuffer   = useStore((s) => s.copyBuffer);
+  const arpSequences = useStore((s) => s.arpSequences);
+
+  // Merge built-in commands with user-defined arp sequences (0x20..0x2F)
+  const COMMANDS = useMemo(() => {
+    const arpEntries = arpSequences.map((seq) => ({
+      cmd:   0x20 + seq.id,
+      label: `${(0x20 + seq.id).toString(16).toUpperCase().padStart(2, '0')} — Arp: ${seq.name}`,
+    }));
+    return [...BUILTIN_COMMANDS, ...arpEntries];
+  }, [arpSequences]);
 
   const rangeCut             = useStore((s) => s.rangeCut);
   const rangeCopy            = useStore((s) => s.rangeCopy);
@@ -240,8 +250,8 @@ export function RangeBar() {
 
       <span className="sep" />
 
-      {/* Command fill — write a cmd+data to every cell in the range */}
-      <span className="upper" title="Write a command into every cell in the range">Cmd</span>
+      {/* FX fill — write a cmd+data to every cell in the range */}
+      <span className="upper" title="Write an effect command into every cell in the range">FX</span>
       <select
         className="range-bar__cmd-select"
         value={cmdSel}
@@ -274,7 +284,7 @@ export function RangeBar() {
         title="Write selected command into all cells in the range"
         onClick={() => rangeSetCmd(cmdSel, parseCmdData())}
       >
-        Fill Cmd
+        Fill
       </button>
 
       <span style={{ flex: 1 }} />

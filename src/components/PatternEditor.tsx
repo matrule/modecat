@@ -13,8 +13,192 @@ import {
   KEYMAP_UPPER,
   NOTE_HOLD,
 } from '../engine/notes';
-import { CHANNELS, type PatternCell } from '../state/types';
+import { CHANNELS, type PatternCell, type Pattern, type SampleInstrument, type HybridInstrument, type Instrument } from '../state/types';
 import { WbPrompt, WbAlert } from './WbDialog';
+
+// ── Waveform ghost layer ───────────────────────────────────────────────────────
+// For each channel, scans for note triggers and draws the sample waveform
+// starting from the row where each note is placed.
+function WaveformGhostLayer({
+  pattern,
+  instruments,
+  bpm,
+  chPx,
+  visibleTracks,
+}: {
+  pattern: Pattern;
+  instruments: Instrument[];
+  bpm: number;
+  chPx: number;
+  visibleTracks: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const patLen    = pattern.rows.length;
+  const totalH    = patLen * ROW_H;
+  const gutterW   = 3.5 * chPx;
+  const colW      = COL_WIDTH_CH * chPx;
+  const totalW    = gutterW + visibleTracks * colW;
+
+  // For each channel, collect every note trigger: { instIdx, startRow }.
+  // A trigger is any cell with a real note (not empty/hold).
+  // If the cell has instrument=0, inherit the last instrument seen in that channel.
+  const channelNotes = useMemo(() => {
+    return Array.from({ length: visibleTracks }, (_, ch) => {
+      const triggers: { instIdx: number; startRow: number }[] = [];
+      let lastInst = 0;
+      for (let ri = 0; ri < pattern.rows.length; ri++) {
+        const cell = pattern.rows[ri]![ch];
+        if (!cell) continue;
+        if (cell.instrument > 0) lastInst = cell.instrument;
+        // Real note trigger: note is set and is not a hold marker
+        if (cell.note > 0 && cell.note !== NOTE_HOLD && lastInst > 0) {
+          triggers.push({ instIdx: lastInst, startRow: ri });
+        }
+      }
+      return triggers;
+    });
+  }, [pattern, visibleTracks]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width  = Math.ceil(totalW * dpr);
+    canvas.height = Math.ceil(totalH * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, totalW, totalH);
+
+    // Cache peak arrays per instrument to avoid recomputing for repeated triggers
+    const peakCache = new Map<string, { peaks: Float32Array; durationRows: number }>();
+
+    function getPeaks(instIdx: number, maxDrawH: number) {
+      const key = `${instIdx}`;
+      if (peakCache.has(key)) return peakCache.get(key)!;
+      const inst = instruments[instIdx];
+      if (!inst || (inst.kind !== 'sample' && inst.kind !== 'hybrid')) return null;
+      const s = inst as SampleInstrument | HybridInstrument;
+      if (!s.pcm || s.pcm.length === 0) return null;
+      const sr           = s.sampleRate || 44100;
+      const durationSecs = s.pcm.length / sr;
+      const durationRows = durationSecs * bpm * 16 / 240;
+      const drawH        = Math.min(durationRows, patLen) * ROW_H;
+      const numPoints    = Math.max(1, Math.ceil(drawH));
+      const spPerPt      = s.pcm.length / numPoints;
+      const peaks        = new Float32Array(numPoints);
+      for (let yi = 0; yi < numPoints; yi++) {
+        const s0 = Math.floor(yi * spPerPt);
+        const s1 = Math.min(Math.ceil((yi + 1) * spPerPt), s.pcm.length);
+        let peak = 0;
+        for (let si = s0; si < s1; si++) {
+          const v = Math.abs(s.pcm[si]!);
+          if (v > peak) peak = v;
+        }
+        peaks[yi] = peak;
+      }
+      const result = { peaks, durationRows };
+      peakCache.set(key, result);
+      return result;
+    }
+
+    for (let ch = 0; ch < visibleTracks; ch++) {
+      const triggers = channelNotes[ch]!;
+      if (!triggers.length) continue;
+
+      const x    = gutterW + ch * colW;
+      const midX = x + colW / 2;
+      const halfW = (colW / 2) * 0.78;
+
+      for (let ti = 0; ti < triggers.length; ti++) {
+        const { instIdx, startRow } = triggers[ti]!;
+        // Clip waveform at the next note trigger on this channel (not the pattern end)
+        const nextTriggerRow = triggers[ti + 1]?.startRow ?? patLen;
+        const cached = getPeaks(instIdx, (patLen - startRow) * ROW_H);
+        if (!cached) continue;
+        const { peaks, durationRows } = cached;
+        const numPoints = peaks.length;
+
+        // Y offset: waveform starts at the row where the note is triggered
+        const offsetY       = startRow * ROW_H;
+        // Clip height: whichever comes first — sample end, next note trigger, or pattern end
+        const clipRows      = Math.min(durationRows, nextTriggerRow - startRow);
+        const remainH       = clipRows * ROW_H;
+        const clippedPoints = Math.min(numPoints, Math.ceil(remainH));
+
+        // Clip to the remaining pattern rows so it doesn't bleed past the end
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, offsetY, colW, remainH);
+        ctx.clip();
+
+        // Filled polygon
+        ctx.beginPath();
+        ctx.moveTo(midX, offsetY);
+        for (let yi = 0; yi < clippedPoints; yi++) {
+          ctx.lineTo(midX + peaks[yi]! * halfW, offsetY + yi);
+        }
+        for (let yi = clippedPoints - 1; yi >= 0; yi--) {
+          ctx.lineTo(midX - peaks[yi]! * halfW, offsetY + yi);
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(80, 160, 255, 0.18)';
+        ctx.fill();
+
+        // Right edge outline
+        ctx.beginPath();
+        for (let yi = 0; yi < clippedPoints; yi++) {
+          const lx = midX + peaks[yi]! * halfW;
+          if (yi === 0) ctx.moveTo(lx, offsetY); else ctx.lineTo(lx, offsetY + yi);
+        }
+        ctx.strokeStyle = 'rgba(150, 220, 255, 0.45)';
+        ctx.lineWidth   = 1;
+        ctx.stroke();
+
+        // Left edge outline
+        ctx.beginPath();
+        for (let yi = 0; yi < clippedPoints; yi++) {
+          const lx = midX - peaks[yi]! * halfW;
+          if (yi === 0) ctx.moveTo(lx, offsetY); else ctx.lineTo(lx, offsetY + yi);
+        }
+        ctx.stroke();
+
+        // End-of-sample dashed line (only if sample ends before next trigger / pattern end)
+        const sampleEndRow = startRow + durationRows;
+        if (sampleEndRow < nextTriggerRow && sampleEndRow < patLen) {
+          const endY = offsetY + numPoints;
+          ctx.setLineDash([3, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x + 2,        endY);
+          ctx.lineTo(x + colW - 2, endY);
+          ctx.strokeStyle = 'rgba(255, 136, 0, 0.85)';
+          ctx.lineWidth   = 2;
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        ctx.restore();
+      }
+    }
+  }, [channelNotes, instruments, bpm, chPx, visibleTracks, patLen, totalH, totalW, gutterW, colW]);
+
+  if (totalH === 0) return null;
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position:      'absolute',
+        top:           0,
+        left:          0,
+        width:         totalW,
+        height:        totalH,
+        pointerEvents: 'none',
+        zIndex:        2,
+        display:       'block',
+      }}
+    />
+  );
+}
 
 const COL_WIDTH_CH = 12; // each channel column = 12 character cells wide
 const ROW_H        = 18; // must match CSS: .pattern__row { height: 18px }
@@ -38,7 +222,6 @@ export function PatternEditor() {
   const setOctave      = useStore((s) => s.setOctave);
   const togglePlay     = useStore((s) => s.togglePlay);
   const toggleMute     = useStore((s) => s.toggleMute);
-  const toggleSolo     = useStore((s) => s.toggleSolo);
   const range          = useStore((s) => s.range);
   const setRange       = useStore((s) => s.setRange);
   const extendRangeTo  = useStore((s) => s.extendRangeTo);
@@ -46,10 +229,13 @@ export function PatternEditor() {
   const pasteTrack     = useStore((s) => s.pasteTrack);
   const trackClipboard = useStore((s) => s.trackClipboard);
   const rangeClear     = useStore((s) => s.rangeClear);
+  const rangeMove      = useStore((s) => s.rangeMove);
   const progKeys       = useStore((s) => s.progKeys);
   const visibleTracks  = useStore((s) => s.visibleTracks);
   const drumConfig     = useStore((s) => s.drumConfig);
   const instHighlight  = useStore((s) => s.instHighlight);
+  const instruments    = useStore((s) => s.instruments);
+  const bpm            = useStore((s) => s.transport.bpm);
 
   // Clip system
   const clips                = useStore((s) => s.clips);
@@ -152,39 +338,71 @@ export function PatternEditor() {
   const clipDragRef = useRef(clipDrag);
   clipDragRef.current = clipDrag;
 
-  // Global mousemove / mouseup for clip dragging
+  // ── Range drag state ──────────────────────────────────────────────────────
+  type RangeDrag = {
+    origStartRow: number; origStartCh: number;
+    rows: number; cols: number;
+    anchorY: number; anchorX: number;
+    ghostRow: number; ghostCh: number;
+  };
+  const [rangeDrag, setRangeDrag] = useState<RangeDrag | null>(null);
+  const rangeDragRef = useRef(rangeDrag);
+  rangeDragRef.current = rangeDrag;
+
+  // Global mousemove / mouseup for clip + range dragging
   useEffect(() => {
     function onMove(e: MouseEvent) {
+      // Clip drag
       const d = clipDragRef.current;
-      if (!d) return;
-      if (d.kind === 'move') {
-        const deltaRow = Math.round((e.clientY - d.anchorY) / ROW_H);
-        const deltaCh  = Math.round((e.clientX - d.anchorX) / (COL_WIDTH_CH * chPx));
-        setClipDrag((prev) =>
-          prev?.kind === 'move'
-            ? { ...prev,
-                ghostRow: Math.max(0, d.origRow + deltaRow),
-                ghostCh:  Math.max(0, d.origCh  + deltaCh), }
-            : prev
-        );
-      } else {
-        const deltaRow     = Math.round((e.clientY - d.anchorY) / ROW_H);
-        const newTileRows  = Math.max(1, d.origTileRows + deltaRow);
-        setClipDrag((prev) =>
-          prev?.kind === 'resize' ? { ...prev, ghostTileRows: newTileRows } : prev
-        );
+      if (d) {
+        if (d.kind === 'move') {
+          const deltaRow = Math.round((e.clientY - d.anchorY) / ROW_H);
+          const deltaCh  = Math.round((e.clientX - d.anchorX) / (COL_WIDTH_CH * chPx));
+          setClipDrag((prev) =>
+            prev?.kind === 'move'
+              ? { ...prev,
+                  ghostRow: Math.max(0, d.origRow + deltaRow),
+                  ghostCh:  Math.max(0, d.origCh  + deltaCh), }
+              : prev
+          );
+        } else {
+          const deltaRow     = Math.round((e.clientY - d.anchorY) / ROW_H);
+          const newTileRows  = Math.max(1, d.origTileRows + deltaRow);
+          setClipDrag((prev) =>
+            prev?.kind === 'resize' ? { ...prev, ghostTileRows: newTileRows } : prev
+          );
+        }
+      }
+      // Range drag
+      const rd = rangeDragRef.current;
+      if (rd) {
+        const deltaRow = Math.round((e.clientY - rd.anchorY) / ROW_H);
+        const deltaCh  = Math.round((e.clientX - rd.anchorX) / (COL_WIDTH_CH * chPx));
+        setRangeDrag((prev) => prev ? {
+          ...prev,
+          ghostRow: Math.max(0, rd.origStartRow + deltaRow),
+          ghostCh:  Math.max(0, rd.origStartCh  + deltaCh),
+        } : null);
       }
     }
     function onUp() {
       const d = clipDragRef.current;
-      if (!d) return;
-      if (d.kind === 'move') {
-        moveClipPlacement(d.patId, d.placementId, d.ghostRow, d.ghostCh);
-      } else {
-        const patLen = patternRef.current?.rows.length ?? 1;
-        extendClipPlacement(d.patId, d.placementId, Math.min(d.ghostTileRows, patLen - 1));
+      if (d) {
+        if (d.kind === 'move') {
+          moveClipPlacement(d.patId, d.placementId, d.ghostRow, d.ghostCh);
+        } else {
+          const patLen = patternRef.current?.rows.length ?? 1;
+          extendClipPlacement(d.patId, d.placementId, Math.min(d.ghostTileRows, patLen - 1));
+        }
+        setClipDrag(null);
       }
-      setClipDrag(null);
+      const rd = rangeDragRef.current;
+      if (rd) {
+        if (rd.ghostRow !== rd.origStartRow || rd.ghostCh !== rd.origStartCh) {
+          rangeMove(rd.ghostRow, rd.ghostCh);
+        }
+        setRangeDrag(null);
+      }
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup',   onUp);
@@ -193,7 +411,7 @@ export function PatternEditor() {
       window.removeEventListener('mouseup',   onUp);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chPx, moveClipPlacement, extendClipPlacement]);
+  }, [chPx, moveClipPlacement, extendClipPlacement, rangeMove]);
   const rowSelRef = useRef(rowSel);
   rowSelRef.current = rowSel;
 
@@ -204,8 +422,6 @@ export function PatternEditor() {
   // apply the class immediately — store it here and apply in useLayoutEffect
   // after the scroll-triggered re-render brings the row into view.
   const pendingPlayheadRef = useRef<number>(-1);
-
-  const anySolo = useMemo(() => trackFlags.some((f) => f.solo), [trackFlags]);
 
   // ── Refs for always-fresh state in the stable keyboard handler ──────────
   const cursorRef         = useRef(cursor);
@@ -606,13 +822,12 @@ export function PatternEditor() {
           <div className="num"></div>
           {Array.from({ length: visibleTracks }, (_, i) => {
             const f = trackFlags[i]!;
-            const audible = anySolo ? f.solo : !f.mute;
+            const audible = !f.mute;
             const drumName = drumChannelNames.get(i);
             const isDrum = drumName !== undefined;
             const cls = [
               'ch',
               f.mute ? 'is-muted' : '',
-              f.solo ? 'is-solo'  : '',
               !audible ? 'is-silent' : '',
               isDrum ? 'is-drum' : '',
             ].filter(Boolean).join(' ');
@@ -623,16 +838,13 @@ export function PatternEditor() {
               ? `${drumName!.substring(0, 4)}/${chNum}`
               : `CH${chNum}`;
             const title = isDrum
-              ? `${drumName} · CH${chNum} · Click: mute · Shift-click: solo`
-              : 'Click: mute · Shift-click: solo · Right-click: copy/paste track';
+              ? `${drumName} · CH${chNum} · Click: mute/unmute`
+              : 'Click: mute/unmute · Right-click: copy/paste track';
             return (
               <div
                 key={i}
                 className={cls}
-                onClick={(e) => {
-                  if (e.shiftKey) toggleSolo(i);
-                  else toggleMute(i);
-                }}
+                onClick={() => toggleMute(i)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   const menu = document.createElement('div');
@@ -685,6 +897,17 @@ export function PatternEditor() {
 
         {/* Rows wrapper — position:relative so clip overlays can be absolutely placed */}
         <div className="pattern__rows-wrap">
+
+        {/* Waveform ghost — behind all rows, one waveform per channel with a sample */}
+        {pattern && (
+          <WaveformGhostLayer
+            pattern={pattern}
+            instruments={instruments}
+            bpm={bpm}
+            chPx={chPx}
+            visibleTracks={visibleTracks}
+          />
+        )}
 
         {/* Top spacer — fills the scroll height above the rendered window */}
         {topH > 0 && <div style={{ height: topH }} aria-hidden />}
@@ -805,7 +1028,7 @@ export function PatternEditor() {
                     isCursorRow={isCurrent}
                     isCursorChannel={c === cursor.channel}
                     cursorField={cursor.field}
-                    muted={anySolo ? !trackFlags[c]!.solo : trackFlags[c]!.mute}
+                    muted={trackFlags[c]!.mute}
                     inRange={inRange}
                     highlighted={highlighted}
                     clipColor={clipInfo?.color}
@@ -827,6 +1050,48 @@ export function PatternEditor() {
 
         {/* Bottom spacer — fills the scroll height below the rendered window */}
         {bottomH > 0 && <div style={{ height: bottomH }} aria-hidden />}
+
+        {/* ── Range drag overlay ────────────────────────────────────────── */}
+        {(() => {
+          if (!range) return null;
+          const gutterCh = 3.5;
+          const colCh    = COL_WIDTH_CH;
+          const h = range.endRow - range.startRow + 1;
+          const w = range.endCh  - range.startCh  + 1;
+          // Live position: ghost while dragging, actual while not.
+          const dispRow = rangeDrag ? rangeDrag.ghostRow : range.startRow;
+          const dispCh  = rangeDrag ? rangeDrag.ghostCh  : range.startCh;
+          const topPx   = dispRow * ROW_H;
+          const leftCh  = gutterCh + dispCh * colCh;
+          return (
+            <div
+              className={`range-overlay${rangeDrag ? ' is-dragging' : ''}`}
+              style={{
+                top:    topPx,
+                height: h * ROW_H,
+                left:   `${leftCh}ch`,
+                width:  `${w * colCh}ch`,
+              }}
+            >
+              <span
+                className="range-overlay__drag"
+                title="Drag to move selection"
+                onMouseDown={(e) => {
+                  if (!range) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setRangeDrag({
+                    origStartRow: range.startRow, origStartCh: range.startCh,
+                    rows: range.endRow - range.startRow,
+                    cols: range.endCh  - range.startCh,
+                    anchorY: e.clientY, anchorX: e.clientX,
+                    ghostRow: range.startRow, ghostCh: range.startCh,
+                  });
+                }}
+              >⠿</span>
+            </div>
+          );
+        })()}
 
         {/* ── Clip placement overlays ────────────────────────────────────── */}
         {(() => {

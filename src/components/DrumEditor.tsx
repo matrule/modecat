@@ -314,7 +314,6 @@ export function DrumEditor() {
     setKitStatus(`Loading ${kit.name}…`);
     try {
       const result = await loadKit(kit, {
-        overwrite: false,
         onProgress: (loaded, total, name) => {
           setKitStatus(name ? `Loading ${name} (${loaded}/${total})` : `Loading ${kit.name}…`);
         },

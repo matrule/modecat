@@ -59,7 +59,7 @@ function defaultSample(name: string): SampleInstrument {
     pcm: null, sampleRate: 44100, baseNote: 60,
     loopEnabled: false, loopStart: 0, loopEnd: 0, volume: 100,
     transpose: 0, finetune: 0, defaultPitch: 60, suppressNoteOff: false,
-    attackMs: 0, decayMs: 0, sustain: 1, releaseMs: 0, lengthRows: 0,
+    attackMs: 5, decayMs: 0, sustain: 1, releaseMs: 110, lengthRows: 0,
   };
 }
 

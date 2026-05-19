@@ -5,8 +5,7 @@
  * Right cluster : One On/Off button per channel, aligned to the pattern grid
  *                 (3.5ch gutter + 16 × 12ch columns, matching COL_WIDTH_CH).
  *
- * Click  = toggle mute.
- * Shift+click = toggle solo.
+ * Click = toggle mute/unmute.
  */
 
 import { useStore } from '../state/store';
@@ -23,10 +22,9 @@ export function ModeBar() {
   const setCursor        = useStore((s) => s.setCursor);
   const setPlayTranspose = useStore((s) => s.setPlayTranspose);
   const toggleMute       = useStore((s) => s.toggleMute);
-  const toggleSolo       = useStore((s) => s.toggleSolo);
   const visibleTracks    = useStore((s) => s.visibleTracks);
-
-  const anySolo = trackFlags.some((f) => f.solo);
+  const range            = useStore((s) => s.range);
+  const rangeClear       = useStore((s) => s.rangeClear);
 
   return (
     <div className="mode-bar">
@@ -95,6 +93,19 @@ export function ModeBar() {
         title="Transpose up 1 semitone"
       >+</button>
 
+      {/* ── Range Clear button (only when selection active) ─────────────────── */}
+      {range && (
+        <button
+          className="btn mode-bar__range-clear"
+          type="button"
+          tabIndex={-1}
+          onClick={() => rangeClear()}
+          title="Clear selection"
+        >
+          CLR
+        </button>
+      )}
+
       {/* ── Spacer ─────────────────────────────────────────────────────────── */}
       <div className="mode-bar__spacer" />
 
@@ -105,25 +116,18 @@ export function ModeBar() {
 
         {Array.from({ length: visibleTracks }, (_, i) => {
           const muted = trackFlags[i]?.mute ?? false;
-          const solo  = trackFlags[i]?.solo ?? false;
-          const dimmed = anySolo && !solo;
 
           return (
             <button
               key={i}
               className={[
                 'btn mode-bar__ch-btn',
-                muted  ? 'is-muted'  : '',
-                solo   ? 'is-solo'   : '',
-                dimmed ? 'is-dimmed' : '',
+                muted ? 'is-muted' : '',
               ].filter(Boolean).join(' ')}
               type="button"
               tabIndex={-1}
-              title={`Ch ${i + 1}: click to mute/unmute, Shift+click to solo`}
-              onClick={(e) => {
-                if (e.shiftKey) toggleSolo(i);
-                else            toggleMute(i);
-              }}
+              title={`Ch ${i + 1}: click to mute/unmute`}
+              onClick={() => toggleMute(i)}
             >
               {muted ? 'OFF' : 'ON'}
             </button>
