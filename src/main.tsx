@@ -4,6 +4,14 @@ import App from './App';
 import './styles/modecat.css';
 import cloud from './lib/cloud';
 import { importSongFile } from './state/persist';
+import { useStore } from './state/store';
+
+// Apply a pending new-project title set by the "New" menu action before reload.
+const pendingTitle = sessionStorage.getItem('mc_new_project_title');
+if (pendingTitle) {
+  sessionStorage.removeItem('mc_new_project_title');
+  useStore.getState().setMeta({ title: pendingTitle, author: '' });
+}
 
 // Initialise cloud before React renders.
 // Handles the mc_token / mc_refresh / mc_project params from the cross-domain

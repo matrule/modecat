@@ -30,6 +30,7 @@ import { SampleBrowser } from './components/SampleBrowser';
 import { VolumeMixer } from './components/VolumeMixer';
 import { ClipPalette } from './components/ClipPalette';
 import { ClipEditor } from './components/ClipEditor';
+import { StatusBar } from './components/StatusBar';
 import EffectsPanel from './components/EffectsPanel';
 import { ModImportDialog } from './components/ModImportDialog';
 import type { ModImportOptions } from './components/ModImportDialog';
@@ -701,6 +702,8 @@ export default function App() {
           />
         </MdiWindow>
       )}
+
+      <StatusBar />
     </div>
   );
 }

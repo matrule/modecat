@@ -3567,3 +3567,69 @@ input[type="checkbox"] {
   background: rgba(255,255,255,0.2);
   margin: 2px 0;
 }
+
+/* ---------- Status Bar ---------- */
+
+.statusbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--wb-black);
+  border-top: 1px solid #001144;
+  padding: 0 8px;
+  height: 18px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #445566;
+  user-select: none;
+}
+
+.statusbar__sep {
+  color: #223344;
+  padding: 0 6px;
+}
+
+.statusbar__item {
+  white-space: nowrap;
+}
+
+.statusbar__item--on {
+  color: #44AAFF;
+}
+
+.statusbar__item--off {
+  color: #334455;
+}
+
+/* ---------- Cloud Save Toast ---------- */
+
+.cloud-toast {
+  position: fixed;
+  bottom: 28px;
+  right: 16px;
+  z-index: 9000;
+  padding: 5px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  border: 1px solid;
+  pointer-events: none;
+  animation: toast-in 0.15s ease;
+}
+
+.cloud-toast--ok {
+  background: #001a00;
+  border-color: #00AA44;
+  color: #44FF88;
+}
+
+.cloud-toast--err {
+  background: #1a0000;
+  border-color: #AA2200;
+  color: #FF6644;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

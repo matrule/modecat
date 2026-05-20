@@ -292,6 +292,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
   // Track cloud auth state
@@ -337,20 +338,25 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
           data: exportSongFile(),
         });
         s.setMeta({ cloudId: id });
+        setToast({ msg: '☁ Saved to cloud', ok: true });
       } catch (e) {
-        alert(`Cloud save failed: ${e instanceof Error ? e.message : String(e)}`);
+        setToast({ msg: `☁ Save failed: ${e instanceof Error ? e.message : String(e)}`, ok: false });
       } finally {
         setCloudSaving(false);
+        setTimeout(() => setToast(null), 3500);
       }
     }
 
-    const cloudItems: MenuDef['items'] = cloudUser ? [
+    const cloudItems: MenuDef['items'] = [
       { kind: 'sep' },
-      { label: `☁ ${cloudUser.email ?? 'Cloud account'}`, disabled: true },
-      { label: cloudSaving ? '☁ Saving…' : '☁ Save to Cloud', action: cloudSave, disabled: cloudSaving },
-      { label: '☁ Open from Cloud…', action: () => { setOpenMenu(null); setCloudOpen(true); } },
-      { label: '☁ Sign out', action: () => { setOpenMenu(null); cloud.signOut(); } },
-    ] : [];
+      ...(cloudUser ? [
+        { label: `☁ ${cloudUser.email ?? 'Cloud account'}`, disabled: true } as Item,
+        { label: cloudSaving ? '☁ Saving…' : '☁ Save to Cloud', action: cloudSave, disabled: cloudSaving } as Item,
+        { label: '☁ Open from Cloud…', action: () => { setOpenMenu(null); setCloudOpen(true); } } as Item,
+      ] : [
+        { label: '☁ Connect account…', action: () => { setOpenMenu(null); cloud.connectAccount(); } } as Item,
+      ]),
+    ];
 
     // Insert cloud items before "About" (which is the last item)
     const aboutIdx = projectMenu.items.findIndex(
@@ -377,6 +383,11 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     <>
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
       {cloudOpen && <CloudProjectsDialog onClose={() => setCloudOpen(false)} />}
+      {toast && (
+        <div className={`cloud-toast cloud-toast--${toast.ok ? 'ok' : 'err'}`}>
+          {toast.msg}
+        </div>
+      )}
       <div className="menubar" ref={barRef}>
       {menus.map((menu, mi) => (
         <div
@@ -535,8 +546,10 @@ function useMenuDefs(
   }
 
   function newProject() {
+    const title = prompt('New project name:', 'Untitled');
+    if (title === null) return; // cancelled
     if (!confirm('Discard current project and start new?')) return;
-    // Reload to initial state
+    sessionStorage.setItem('mc_new_project_title', title.trim() || 'Untitled');
     window.location.reload();
   }
 
