@@ -154,6 +154,8 @@ export function parseMod(buffer: ArrayBuffer): ModImportResult {
 
   for (let pi = 0; pi < numPatterns; pi++) {
     const rows: PatternCell[][] = [];
+    let patternBreakRow = -1; // row index where effect 0xD fires (inclusive)
+
     for (let ri = 0; ri < patternRowCount; ri++) {
       const cells: PatternCell[] = [];
       for (let ch = 0; ch < numChannels; ch++) {
@@ -205,6 +207,8 @@ export function parseMod(buffer: ArrayBuffer): ModImportResult {
           else if (slideDown > 0) { cmd = 0x1B; data = slideDown; }
         } else if (effect === 0xC) {    // Set Volume — sequencer expects 0-64, scales internally
           cmd = 0x0C; data = Math.min(64, edata);
+        } else if (effect === 0xD) {    // Pattern Break — note the row, trim after parsing
+          if (patternBreakRow < 0) patternBreakRow = ri;
         } else if (effect === 0xF) {    // Set Speed/Tempo
           cmd = 0x0F; data = edata;
         }
@@ -215,7 +219,11 @@ export function parseMod(buffer: ArrayBuffer): ModImportResult {
       while (cells.length < 16) cells.push(emptyCell());
       rows.push(cells);
     }
-    patterns.push(rows);
+
+    // Trim trailing rows after a Pattern Break (effect 0xD).
+    // The break row itself is kept (it carries the last notes/effects on that row).
+    const trimmedRows = patternBreakRow >= 0 ? rows.slice(0, patternBreakRow + 1) : rows;
+    patterns.push(trimmedRows);
   }
 
   // ── Sample PCM data (follows all patterns) ──
@@ -234,6 +242,10 @@ export function parseMod(buffer: ArrayBuffer): ModImportResult {
         pcm[s] = (b < 128 ? b : b - 256) / 128.0;
       }
       inst.pcm = pcm;
+      // Non-looping samples: set loop points to the full range so the IN/OUT
+      // markers are always visible in the sample editor.  The sequencer only
+      // uses these when loopEnabled=true, so playback is unaffected.
+      if (!inst.loopEnabled) inst.loopEnd = pcm.length - 1;
     }
     smpOff += Math.max(0, byteLen);
   }
@@ -365,7 +377,8 @@ export function parseS3m(buffer: ArrayBuffer): ModImportResult {
       finetune: 0,
       loopEnabled,
       loopStart: loopEnabled ? loopStart : 0,
-      loopEnd:   loopEnabled ? loopEnd   : 0,
+      // Non-looping: default to full sample range so markers are visible in the editor.
+      loopEnd:   loopEnabled ? loopEnd   : (pcm ? pcm.length - 1 : 0),
     });
   }
 
@@ -407,22 +420,41 @@ export function parseS3m(buffer: ArrayBuffer): ModImportResult {
         cell.instrument = instByte;
       }
 
-      if (packed & 0x40) { // has volume
+      if (packed & 0x40) { // has volume column (0–64)
         const vbyte = buf[off++]!;
         if (vbyte <= 64) {
           cell.cmd  = 0x0C;
-          cell.data = Math.round(vbyte / 64 * 255);
+          cell.data = vbyte; // sequencer expects 0–64 (same scale as MOD Cxx)
         }
       }
 
       if (packed & 0x80) { // has command + info
         const cmdByte  = buf[off++]!;
         const infoByte = buf[off++]!;
-        // Map S3M commands to ModeCat equivalents
-        // A = speed (ticks), T = tempo (BPM), C = set volume
-        if (cmdByte === 1)  { cell.cmd = 0x0F; cell.data = infoByte; } // A: speed
-        if (cmdByte === 20) { cell.cmd = 0x0F; cell.data = infoByte; } // T: tempo
-        if (cmdByte === 3)  { cell.cmd = 0x0C; cell.data = Math.min(64, infoByte); } // C: volume (0-64)
+        // Map S3M commands (1-indexed, A=1) to ModeCat equivalents.
+        // Command letters: A=1 B=2 C=3 D=4 E=5 F=6 G=7 ... T=20
+        // Note: volume column above already handles volume — cmd 0x0C below overwrites only if
+        // the command column also sets volume (S3M has separate volume & command columns).
+        switch (cmdByte) {
+          case 1:  // A: Set Speed (ticks per row)
+            cell.cmd = 0x0F; cell.data = infoByte; break;
+          case 20: // T: Set Tempo (BPM)
+            cell.cmd = 0x0F; cell.data = infoByte; break;
+          // case 3: C = Pattern Break — no ModeCat equivalent, skip
+          case 4: { // D: Volume Slide — hi nibble=up, lo nibble=down
+            const up   = (infoByte >> 4) & 0x0F;
+            const down = infoByte & 0x0F;
+            if (up > 0)        { cell.cmd = 0x1A; cell.data = up; }
+            else if (down > 0) { cell.cmd = 0x1B; cell.data = down; }
+            break;
+          }
+          case 5: // E: Pitch slide down (period up)
+            cell.cmd = 0x02; cell.data = Math.max(1, Math.round(infoByte / 3)); break;
+          case 6: // F: Pitch slide up (period down)
+            cell.cmd = 0x01; cell.data = Math.max(1, Math.round(infoByte / 3)); break;
+          case 7: // G: Tone portamento
+            cell.cmd = 0x03; cell.data = infoByte > 0 ? Math.max(1, Math.round(infoByte / 2)) : 0; break;
+        }
       }
 
       if (ch < 16) rows[row]![ch] = cell;

@@ -211,6 +211,8 @@ interface Store {
   rangePitchSlide: (mode: '01' | '02' | '03', speed: number) => void;
   /** Write cmd+data into every cell in the range (overwrites existing cmd/data only). */
   rangeSetCmd: (cmd: number, data: number) => void;
+  /** Stamp a new instrument index onto every note cell in the current range. */
+  rangeSetInstrument: (instIdx: number) => void;
   /**
    * Paste the copyBuffer at the cursor, shifted right by `chOffset` channels.
    * Allows pasting to different channels than where the copy originated.
@@ -998,6 +1000,27 @@ export const useStore = create<Store>((set, get) => {
           return rowCells.map((c, ci) =>
             ci < r.startCh || ci > r.endCh ? c : { ...c, cmd, data }
           );
+        });
+        return { ...p, rows };
+      });
+      return { patterns };
+    }),
+
+  rangeSetInstrument: (instIdx) =>
+    withUndo((s) => {
+      const r = s.range;
+      const pid = s.song.positions[s.transport.songPos];
+      if (!r || pid == null) return {};
+      const patterns = s.patterns.map((p) => {
+        if (p.id !== pid) return p;
+        const rows = p.rows.map((rowCells, ri) => {
+          if (ri < r.startRow || ri > r.endRow) return rowCells;
+          return rowCells.map((c, ci) => {
+            if (ci < r.startCh || ci > r.endCh) return c;
+            // Only stamp cells that have a note — leave empty/hold cells alone
+            if (c.note === 0) return c;
+            return { ...c, instrument: instIdx };
+          });
         });
         return { ...p, rows };
       });

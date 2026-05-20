@@ -35,7 +35,7 @@ import {
   type SampleInstrument,
   type SynthInstrument,
 } from '../state/types';
-import { NOTE_HOLD } from './notes';
+import { NOTE_HOLD, NOTE_OFF } from './notes';
 
 const LOOKAHEAD_INTERVAL_MS = 25;
 const SCHEDULE_AHEAD_MS = 200;
@@ -730,6 +730,14 @@ export class Sequencer {
         }
       }
 
+    // NOTE_OFF (0xFD) — cut the sounding note immediately (same as FFF stop effect).
+    if (cell.note === NOTE_OFF) {
+      const offs: MidiOutEvent[] = [];
+      this.cutChannel(ch, offs, portId);
+      midiEvents.push(...offs);
+      continue;
+    }
+
     // Sustaining effects on cells with no new note.
     // NOTE_HOLD (0xFE) sustains the current note like an empty note field —
     // effects still apply but no new note is triggered.
@@ -793,6 +801,12 @@ if (act) {
         }
 if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 0x0a) {
           this.applySustainingVolSlide(act, ch, cell.data, tStart, msPerRow, msPerTick);
+        }
+        // 0x1A / 0x1B: MOD-imported volume slide up/down.
+        // applySustainingVolSlide expects packed nibbles (up<<4|down), so repack.
+        if (cell.cmd === 0x1a || cell.cmd === 0x1b) {
+          const packed = cell.cmd === 0x1a ? (cell.data << 4) : cell.data;
+          this.applySustainingVolSlide(act, ch, packed, tStart, msPerRow, msPerTick);
         }
         if (cell.cmd === 0x07) {
           // Tremolo continuation / refresh.

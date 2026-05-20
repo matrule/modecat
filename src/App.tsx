@@ -35,6 +35,7 @@ import { ModImportDialog } from './components/ModImportDialog';
 import type { ModImportOptions } from './components/ModImportDialog';
 import { parseTrackerFile } from './engine/modImport';
 import type { ModImportResult } from './engine/modImport';
+import { parseXrns } from './engine/xrnsImport';
 import { useStore } from './state/store';
 import { setNoteNamingMode } from './engine/notes';
 import type { Clip, SampleInstrument } from './state/types';
@@ -141,7 +142,10 @@ export default function App() {
     if (modFileInputRef.current) modFileInputRef.current.value = '';
     try {
       const buf = await file.arrayBuffer();
-      const result = parseTrackerFile(buf, file.name);
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const result = ext === 'xrns'
+        ? await parseXrns(buf)
+        : parseTrackerFile(buf, file.name);
       setModImportFilename(file.name);
       setModImportResult(result);
     } catch (err) {
@@ -547,7 +551,7 @@ export default function App() {
       <input
         ref={modFileInputRef}
         type="file"
-        accept=".mod,.s3m"
+        accept=".mod,.s3m,.xrns"
         style={{ display: 'none' }}
         onChange={handleModFileChange}
       />

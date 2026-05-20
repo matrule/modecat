@@ -50,6 +50,7 @@ export function SongEditor() {
   const pasteBlock = useStore((s) => s.pasteBlock);
   const blockClipboard = useStore((s) => s.blockClipboard);
   const setPatternLength = useStore((s) => s.setPatternLength);
+  const replacePatternRows = useStore((s) => s.replacePatternRows);
   const activePattern = useActivePattern();
 
   const insertSection = useStore((s) => s.insertSection);
@@ -223,18 +224,27 @@ export function SongEditor() {
           className="btn"
           onClick={() => {
             const activePid = positions[songPos] ?? patterns[0]?.id ?? 1;
-            insertSongPosition(positions.length, activePid);
+            insertSongPosition(songPos + 1, activePid);
           }}
           type="button"
-          title="Append current block as next song position"
+          title="Insert a reference to the current block after this position"
         >
           + Pos
         </button>
         <button
           className="btn"
-          onClick={() => addPattern(positions.length - 1)}
+          onClick={() => {
+            const src = patterns.find((p) => p.id === positions[songPos]);
+            const newId = addPattern(songPos);
+            if (src) {
+              const copiedRows = src.rows.map((row) => row.map((c) => ({ ...c })));
+              replacePatternRows(newId, copiedRows);
+              const baseName = src.name.replace(/-copy(\d*)$/, '');
+              renamePattern(newId, `${baseName}-copy`);
+            }
+          }}
           type="button"
-          title="Create a new empty block and append it to the sequence"
+          title="Duplicate current block and insert after this position"
         >
           + Blk
         </button>

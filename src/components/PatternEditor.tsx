@@ -12,6 +12,7 @@ import {
   KEYMAP_LOWER,
   KEYMAP_UPPER,
   NOTE_HOLD,
+  NOTE_OFF,
 } from '../engine/notes';
 import { CHANNELS, type PatternCell, type Pattern, type SampleInstrument, type HybridInstrument, type Instrument } from '../state/types';
 import { WbPrompt, WbAlert } from './WbDialog';
@@ -50,8 +51,8 @@ function WaveformGhostLayer({
         const cell = pattern.rows[ri]![ch];
         if (!cell) continue;
         if (cell.instrument > 0) lastInst = cell.instrument;
-        // Real note trigger: note is set and is not a hold marker
-        if (cell.note > 0 && cell.note !== NOTE_HOLD && lastInst > 0) {
+        // Real note trigger: note is set and is not a hold or stop marker
+        if (cell.note > 0 && cell.note !== NOTE_HOLD && cell.note !== NOTE_OFF && lastInst > 0) {
           triggers.push({ instIdx: lastInst, startRow: ri });
         }
       }
@@ -228,8 +229,9 @@ export function PatternEditor() {
   const copyTrack      = useStore((s) => s.copyTrack);
   const pasteTrack     = useStore((s) => s.pasteTrack);
   const trackClipboard = useStore((s) => s.trackClipboard);
-  const rangeClear     = useStore((s) => s.rangeClear);
-  const rangeMove      = useStore((s) => s.rangeMove);
+  const rangeClear          = useStore((s) => s.rangeClear);
+  const rangeMove           = useStore((s) => s.rangeMove);
+  const rangeSetInstrument  = useStore((s) => s.rangeSetInstrument);
   const progKeys       = useStore((s) => s.progKeys);
   const visibleTracks  = useStore((s) => s.visibleTracks);
   const drumConfig     = useStore((s) => s.drumConfig);
@@ -313,14 +315,21 @@ export function PatternEditor() {
   // ── Clip name prompt (shown after right-click "Save Range as Clip") ──────
   const [clipPromptOpen, setClipPromptOpen] = useState(false);
 
-  // ── Pixel width of 1 ch unit (measured once after mount) ─────────────────
-  // Used to convert ch-based column positions to pixels for overlay drag math.
+  // ── Pixel width of 1 ch unit (measured inside the pattern editor) ─────────
+  // Must be measured from inside the scroll container so we pick up the 17px
+  // pattern-editor font, not the body's 18px — otherwise the canvas column
+  // widths are slightly too wide and waveforms bleed past the column edge.
   const [chPx, setChPx] = useState(10.8);
   useEffect(() => {
+    const container = scrollRef.current ?? document.body;
     const el = document.createElement('span');
-    el.style.cssText = 'position:absolute;visibility:hidden;font:inherit';
+    // letter-spacing:0 is critical: CSS `ch` unit = advance width of '0' with NO
+    // letter-spacing, but the container has letter-spacing:0.5px which Chrome
+    // adds to the single-char span's width, causing cumulative rightward drift
+    // across channels.  Force it to 0 so chPx == 1ch exactly.
+    el.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit;letter-spacing:0';
     el.textContent = '0';
-    document.body.appendChild(el);
+    container.appendChild(el);
     const w = el.getBoundingClientRect().width;
     if (w > 0) setChPx(w);
     el.remove();
@@ -655,6 +664,13 @@ export function PatternEditor() {
       return;
     }
 
+    // Ctrl+I — stamp current instrument onto every note cell in the selection
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I') && range) {
+      e.preventDefault();
+      rangeSetInstrument(selectedInstRef.current);
+      return;
+    }
+
     if (!cursor.editMode) return;
 
     const { row, channel, field } = cursor;
@@ -690,6 +706,15 @@ export function PatternEditor() {
       if (k === 'a') {
         e.preventDefault();
         setCell(row, channel, { note: NOTE_HOLD });
+        if (cursor.chordMode) moveCursor(0, 7);
+        else moveCursor(cursor.spc, 0);
+        return;
+      }
+
+      // Backtick / grave accent → stop-note cell (-X-)
+      if (k === '`') {
+        e.preventDefault();
+        setCell(row, channel, { note: NOTE_OFF, instrument: 0, cmd: 0, data: 0 });
         if (cursor.chordMode) moveCursor(0, 7);
         else moveCursor(cursor.spc, 0);
         return;
@@ -775,7 +800,7 @@ export function PatternEditor() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setCell, clearCell, setCursor, moveCursor, setEditMode, setOctave, togglePlay, setRange, insertRowAt, deleteRowAt]);
+  }, [setCell, clearCell, setCursor, moveCursor, setEditMode, setOctave, togglePlay, setRange, insertRowAt, deleteRowAt, rangeSetInstrument]);
 
   useEffect(() => {
     window.addEventListener('keydown', onKey);

@@ -13,8 +13,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/store';
-import { downloadSong, importSongFile, loadSongFromFile } from '../state/persist';
+import { downloadSong, exportSongFile, importSongFile, loadSongFromFile } from '../state/persist';
 import modecatLogo from '../assets/modecat.jpeg';
+import cloud from '../lib/cloud';
+import type { User } from '@supabase/supabase-js';
+import { CloudProjectsDialog } from './CloudProjectsDialog';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -286,7 +289,13 @@ interface MenuBarProps {
 export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming = 'B', onToggleNoteNaming, visibleTracks = 16, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic }: MenuBarProps = {}) {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const [showAbout, setShowAbout] = useState(false);
+  const [cloudUser, setCloudUser] = useState<User | null>(null);
+  const [cloudOpen, setCloudOpen] = useState(false);
+  const [cloudSaving, setCloudSaving] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+
+  // Track cloud auth state
+  useEffect(() => cloud.onAuthChange(setCloudUser), []);
 
   // Close on outside click
   useEffect(() => {
@@ -310,6 +319,52 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
 
   const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic);
 
+  // ── Inject cloud items into the Project menu ────────────────────────────────
+  const projectMenu = menus[0];
+  if (projectMenu) {
+    // Save to cloud: serialise via exportSongFile() which handles PCM base64 encoding
+    async function cloudSave() {
+      if (cloudSaving) return;
+      setCloudSaving(true);
+      setOpenMenu(null);
+      try {
+        const s = useStore.getState();
+        const id = s.meta.cloudId ?? crypto.randomUUID();
+        await cloud.saveProject({
+          id,
+          title: s.meta.title || 'Untitled',
+          bpm: s.transport.bpm,
+          data: exportSongFile(),
+        });
+        s.setMeta({ cloudId: id });
+      } catch (e) {
+        alert(`Cloud save failed: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setCloudSaving(false);
+      }
+    }
+
+    const cloudItems: MenuDef['items'] = [
+      { kind: 'sep' },
+      cloudUser
+        ? { label: `☁ Signed in as ${cloudUser.email ?? 'user'}`, disabled: true }
+        : { label: '☁ Connect account…', action: () => { setOpenMenu(null); cloud.connectAccount(); } },
+      { label: cloudSaving ? '☁ Saving…' : '☁ Save to Cloud', action: cloudSave, disabled: cloudSaving || !cloudUser },
+      { label: '☁ Open from Cloud…', action: () => { setOpenMenu(null); setCloudOpen(true); }, disabled: !cloudUser },
+      ...(cloudUser ? [{ label: '☁ Sign out', action: () => { setOpenMenu(null); cloud.signOut(); } } as Item] : []),
+    ];
+
+    // Insert cloud items before "About" (which is the last item)
+    const aboutIdx = projectMenu.items.findIndex(
+      (it) => 'label' in it && it.label === 'About'
+    );
+    if (aboutIdx >= 0) {
+      projectMenu.items.splice(aboutIdx, 0, ...cloudItems);
+    } else {
+      projectMenu.items.push(...cloudItems);
+    }
+  }
+
   function toggleMenu(idx: number) {
     setOpenMenu((prev) => (prev === idx ? null : idx));
   }
@@ -323,6 +378,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
   return (
     <>
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+      {cloudOpen && <CloudProjectsDialog onClose={() => setCloudOpen(false)} />}
       <div className="menubar" ref={barRef}>
       {menus.map((menu, mi) => (
         <div

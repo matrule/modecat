@@ -325,6 +325,9 @@ export interface MidiPort {
 export interface SongMeta {
   title: string;
   author: string;
+  /** UUID assigned when first saved to the cloud. Travels with the .modecat.json
+   *  file so re-opening and re-saving overwrites the same cloud project. */
+  cloudId?: string;
 }
 
 /**

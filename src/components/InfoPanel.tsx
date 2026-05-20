@@ -49,12 +49,13 @@ function calcRows(durationSecs: number, bpm: number): RowCalc[] {
 }
 
 export function InfoPanel() {
-  const instruments    = useStore((s) => s.instruments);
-  const selected       = useStore((s) => s.selectedInstrument);
-  const bpm            = useStore((s) => s.transport.bpm);
-  const activePattern  = useActivePattern();
-
-  const inst = instruments[selected];
+  // Subscribe directly to the selected instrument in one selector so there's
+  // no intermediate render step where instruments and selectedInstrument could
+  // be out of sync (e.g. after a cut/trim the memo would see the old PCM length).
+  const inst     = useStore((s) => s.instruments[s.selectedInstrument]);
+  const selected = useStore((s) => s.selectedInstrument);
+  const bpm      = useStore((s) => s.transport.bpm);
+  const activePattern = useActivePattern();
 
   // Sample duration
   const sampleInfo = useMemo(() => {

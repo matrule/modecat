@@ -8,6 +8,13 @@ const NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#',
  */
 export const NOTE_HOLD = 254;
 
+/**
+ * ModeCat stop-note symbol: immediately cut the sounding note on this channel.
+ * Stored as note value 253 (0xFD) in pattern cells, displayed as "-X-".
+ * The sequencer treats this identically to cmd=0x0F/data=0xFF (stopNote).
+ */
+export const NOTE_OFF = 253;
+
 /** Current note naming convention. 'B' = standard, 'H' = European (B is called H). */
 export let noteNaming: 'B' | 'H' = 'B';
 
@@ -16,9 +23,10 @@ export function setNoteNamingMode(v: 'B' | 'H'): void {
   noteNaming = v;
 }
 
-/** Format a MIDI note 0..127 as 3 chars (e.g. 60 -> "C-4"). 0 -> "---". 254 -> "-|-". */
+/** Format a MIDI note 0..127 as 3 chars (e.g. 60 -> "C-4"). 0 -> "---". 254 -> "-|-". 253 -> "-X-". */
 export function formatNote(midi: number): string {
   if (midi === NOTE_HOLD) return '-|-';
+  if (midi === NOTE_OFF)  return '-X-';
   if (midi <= 0) return '---';
   const name = NAMES[midi % 12];
   const octave = Math.max(0, Math.floor(midi / 12) - 1);
