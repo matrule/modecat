@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useWbDialog } from './WbDialog';
 import { useStore } from '../state/store';
 import { downloadSong, exportSongFile, importSongFile, loadSongFromFile } from '../state/persist';
 import modecatLogo from '../assets/modecat.jpeg';
@@ -293,6 +294,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const { wbPrompt, wbConfirm, wbAlert, dialogEl } = useWbDialog();
   const barRef = useRef<HTMLDivElement>(null);
 
   // Track cloud auth state
@@ -318,7 +320,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic);
+  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic, wbPrompt, wbConfirm, wbAlert);
 
   // ── Inject cloud items into the Project menu ────────────────────────────────
   const projectMenu = menus[0];
@@ -384,6 +386,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     <>
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
       {cloudOpen && <CloudProjectsDialog onClose={() => setCloudOpen(false)} />}
+      {dialogEl}
       {toast && (
         <div className={`cloud-toast cloud-toast--${toast.ok ? 'ok' : 'err'}`}>
           {toast.msg}
@@ -478,6 +481,9 @@ function useMenuDefs(
   onClipPalette?: () => void,
   onInstParams?: () => void,
   onPanic?: () => void,
+  wbPrompt?: (title: string, opts?: { label?: string; defaultValue?: string; allowEmpty?: boolean }) => Promise<string | null>,
+  wbConfirm?: (message: string, opts?: { title?: string; danger?: boolean }) => Promise<boolean>,
+  wbAlert?: (message: string, opts?: { title?: string }) => Promise<void>,
 ): MenuDef[] {
   const meta        = useStore((s) => s.meta);
   const setMeta     = useStore((s) => s.setMeta);
@@ -540,30 +546,31 @@ function useMenuDefs(
         const text = await f.text();
         importSongFile(JSON.parse(text));
       } catch (err) {
-        alert(`Could not load song: ${err instanceof Error ? err.message : String(err)}`);
+        wbAlert?.(`Could not load song: ${err instanceof Error ? err.message : String(err)}`, { title: 'Load Error' });
       }
     };
     input.click();
   }
 
-  function newProject() {
-    const title = prompt('New project name:', 'Untitled');
-    if (title === null) return; // cancelled
-    if (!confirm('Discard current project and start new?')) return;
+  async function newProject() {
+    const title = await wbPrompt?.('New Project', { label: 'Project name', defaultValue: 'Untitled' }) ?? null;
+    if (title === null) return;
+    const ok = await wbConfirm?.('Discard current project and start new?', { title: 'New Project', danger: true }) ?? false;
+    if (!ok) return;
     sessionStorage.setItem('mc_new_project_title', title.trim() || 'Untitled');
     window.location.reload();
   }
 
-  function setAnnotation() {
-    const title = prompt('Song title:', meta.title);
+  async function setAnnotation() {
+    const title = await wbPrompt?.('Song Annotation', { label: 'Song title', defaultValue: meta.title, allowEmpty: true }) ?? null;
     if (title === null) return;
-    const author = prompt('Author:', meta.author);
+    const author = await wbPrompt?.('Song Annotation', { label: 'Author', defaultValue: meta.author, allowEmpty: true }) ?? null;
     if (author === null) return;
     setMeta({ title, author });
   }
 
   function stub(label: string) {
-    return () => alert(`${label} — not yet implemented`);
+    return () => wbAlert?.(`${label} — not yet implemented`);
   }
 
   return [
@@ -650,12 +657,12 @@ function useMenuDefs(
         { kind: 'sep' },
         {
           label: 'Set Properties…',
-          action: onBlockProps ?? (() => {
+          action: onBlockProps ?? (async () => {
             if (!pat) return;
-            const name = prompt('Block name:', pat.name ?? '');
+            const name = await wbPrompt?.('Block Properties', { label: 'Block name', defaultValue: pat.name ?? '', allowEmpty: true }) ?? null;
             if (name === null) return;
             useStore.getState().renamePattern(pat.id, name);
-            const lenStr = prompt('Block length (rows):', String(pat.rows.length));
+            const lenStr = await wbPrompt?.('Block Properties', { label: 'Block length (rows)', defaultValue: String(pat.rows.length) }) ?? null;
             if (lenStr === null) return;
             const len = parseInt(lenStr, 10);
             if (len >= 1 && len <= 3200) setPatternLength(len);
@@ -722,9 +729,10 @@ function useMenuDefs(
         { kind: 'sep' },
         {
           label: 'Fill Sequence with this Block',
-          action: () => {
+          action: async () => {
             if (!pat) return;
-            if (!confirm(`Set ALL song positions to block "${pat.name || pat.id}"?`)) return;
+            const ok = await wbConfirm?.(`Set ALL song positions to block "${pat.name || pat.id}"?`) ?? false;
+            if (!ok) return;
             const s = useStore.getState();
             const filled = s.song.positions.map(() => pat.id);
             useStore.setState((st) => ({
@@ -874,8 +882,8 @@ function useMenuDefs(
         { kind: 'sep' },
         {
           label: 'Spread Notes…',
-          action: () => {
-            const v = prompt('Spread notes across N channels:', '2');
+          action: async () => {
+            const v = await wbPrompt?.('Spread Notes', { label: 'Spread across N channels (2–16)', defaultValue: '2' }) ?? null;
             if (!v) return;
             const n = parseInt(v, 10);
             if (n >= 2 && n <= 16) rangeSpread(n);
@@ -907,9 +915,10 @@ function useMenuDefs(
         { kind: 'sep' },
         {
           label: 'Flush Current',
-          action: onFlushCurrent ?? (() => {
+          action: onFlushCurrent ?? (async () => {
             const idx = useStore.getState().selectedInstrument;
-            if (!confirm(`Flush instrument ${idx}?`)) return;
+            const ok = await wbConfirm?.(`Flush instrument ${idx}?`, { danger: true }) ?? false;
+            if (!ok) return;
             useStore.getState().setInstrument(idx, { kind: 'empty', name: '--' });
           }),
         },
@@ -1001,8 +1010,8 @@ function useMenuDefs(
         },
         {
           label: `Spacing: ${cursor.spc}`,
-          action: () => {
-            const v = prompt('Cursor advance after note entry (1–16):', String(cursor.spc));
+          action: async () => {
+            const v = await wbPrompt?.('Cursor Spacing', { label: 'Advance after note entry (1–16)', defaultValue: String(cursor.spc) }) ?? null;
             if (!v) return;
             const n = parseInt(v, 10);
             if (n >= 1 && n <= 16) setCursor({ spc: n });

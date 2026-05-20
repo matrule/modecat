@@ -13,7 +13,7 @@
  * auto-focus the relevant control on mount.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 // ── WbPrompt ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +22,8 @@ interface WbPromptProps {
   label?: string;
   defaultValue?: string;
   okLabel?: string;
+  /** Allow confirming with an empty (or whitespace-only) value. */
+  allowEmpty?: boolean;
   /** Called with the entered value when OK is pressed (or Enter). */
   onConfirm: (value: string) => void;
   /** Called when Cancel is pressed or Escape is hit. */
@@ -33,6 +35,7 @@ export function WbPrompt({
   label = 'Name',
   defaultValue = '',
   okLabel = 'OK',
+  allowEmpty = false,
   onConfirm,
   onCancel,
 }: WbPromptProps) {
@@ -54,8 +57,8 @@ export function WbPrompt({
   }, [value]);
 
   function submit() {
-    const trimmed = value.trim();
-    if (trimmed) onConfirm(trimmed);
+    if (!allowEmpty && !value.trim()) return;
+    onConfirm(value.trim());
   }
 
   return (
@@ -76,6 +79,7 @@ export function WbPrompt({
               onChange={(e) => setValue(e.target.value)}
               autoComplete="off"
               spellCheck={false}
+              autoFocus
             />
           </div>
         </div>
@@ -87,7 +91,7 @@ export function WbPrompt({
             className="btn wb-dialog__btn wb-dialog__btn--ok"
             type="button"
             onClick={submit}
-            disabled={!value.trim()}
+            disabled={!allowEmpty && !value.trim()}
           >
             {okLabel}
           </button>
@@ -205,4 +209,82 @@ export function WbAlert({ title = 'Notice', message, onClose }: WbAlertProps) {
       </div>
     </div>
   );
+}
+
+// ── useWbDialog ───────────────────────────────────────────────────────────────
+// Promise-based hook — lets async functions chain dialogs without nested state.
+//
+// Usage:
+//   const { wbPrompt, wbConfirm, wbAlert, dialogEl } = useWbDialog();
+//   // render {dialogEl} somewhere in your JSX
+//
+//   const name = await wbPrompt('Title', 'Project name', 'Untitled');
+//   if (name === null) return;  // user cancelled
+//   const ok = await wbConfirm('Discard?', { danger: true });
+//   if (!ok) return;
+
+type DialogSpec =
+  | { kind: 'prompt';  title: string; label: string; defaultValue: string; allowEmpty: boolean; resolve: (v: string | null) => void }
+  | { kind: 'confirm'; title: string; message: string; danger: boolean;    resolve: (v: boolean) => void }
+  | { kind: 'alert';   title: string; message: string;                      resolve: () => void };
+
+export interface WbPromptOptions { label?: string; defaultValue?: string; allowEmpty?: boolean }
+export interface WbConfirmOptions { title?: string; danger?: boolean }
+export interface WbAlertOptions  { title?: string }
+
+export function useWbDialog() {
+  const [spec, setSpec] = useState<DialogSpec | null>(null);
+
+  const wbPrompt = useCallback((title: string, opts: WbPromptOptions = {}): Promise<string | null> =>
+    new Promise((resolve) => {
+      setSpec({ kind: 'prompt', title, label: opts.label ?? 'Value', defaultValue: opts.defaultValue ?? '', allowEmpty: opts.allowEmpty ?? false, resolve });
+    }), []);
+
+  const wbConfirm = useCallback((message: string, opts: WbConfirmOptions = {}): Promise<boolean> =>
+    new Promise((resolve) => {
+      setSpec({ kind: 'confirm', title: opts.title ?? 'Confirm', message, danger: opts.danger ?? false, resolve });
+    }), []);
+
+  const wbAlert = useCallback((message: string, opts: WbAlertOptions = {}): Promise<void> =>
+    new Promise((resolve) => {
+      setSpec({ kind: 'alert', title: opts.title ?? 'Notice', message, resolve });
+    }), []);
+
+  const dismiss = useCallback(() => setSpec(null), []);
+
+  let dialogEl: React.ReactElement | null = null;
+  if (spec) {
+    if (spec.kind === 'prompt') {
+      dialogEl = (
+        <WbPrompt
+          title={spec.title}
+          label={spec.label}
+          defaultValue={spec.defaultValue}
+          allowEmpty={spec.allowEmpty}
+          onConfirm={(v) => { dismiss(); spec.resolve(v); }}
+          onCancel={() => { dismiss(); spec.resolve(null); }}
+        />
+      );
+    } else if (spec.kind === 'confirm') {
+      dialogEl = (
+        <WbConfirm
+          title={spec.title}
+          message={spec.message}
+          danger={spec.danger}
+          onConfirm={() => { dismiss(); spec.resolve(true); }}
+          onCancel={() => { dismiss(); spec.resolve(false); }}
+        />
+      );
+    } else {
+      dialogEl = (
+        <WbAlert
+          title={spec.title}
+          message={spec.message}
+          onClose={() => { dismiss(); spec.resolve(); }}
+        />
+      );
+    }
+  }
+
+  return { wbPrompt, wbConfirm, wbAlert, dialogEl };
 }

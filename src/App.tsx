@@ -31,6 +31,7 @@ import { VolumeMixer } from './components/VolumeMixer';
 import { ClipPalette } from './components/ClipPalette';
 import { ClipEditor } from './components/ClipEditor';
 import { StatusBar } from './components/StatusBar';
+import { useWbDialog } from './components/WbDialog';
 import EffectsPanel from './components/EffectsPanel';
 import { ModImportDialog } from './components/ModImportDialog';
 import type { ModImportOptions } from './components/ModImportDialog';
@@ -60,6 +61,7 @@ export default function App() {
   const selectedInstrument = useStore((s) => s.selectedInstrument);
   const canUndo = useStore((s) => s.canUndo());
   const canRedo = useStore((s) => s.canRedo());
+  const { wbAlert, dialogEl: wbDialogEl } = useWbDialog();
 
   // Left panel tab: 'song' | 'clips' | 'fx'
   const [leftTab, setLeftTab] = useState<'song' | 'clips' | 'fx'>('song');
@@ -95,7 +97,7 @@ export default function App() {
       setMidiImportResult(result);
     } catch (err) {
       console.error('MIDI parse error', err);
-      alert(`Could not parse MIDI file: ${(err as Error).message}`);
+      wbAlert(`Could not parse MIDI file: ${(err as Error).message}`, { title: 'Import Error' });
     }
     if (midiFileInputRef.current) midiFileInputRef.current.value = '';
   }, []);
@@ -150,7 +152,7 @@ export default function App() {
       setModImportFilename(file.name);
       setModImportResult(result);
     } catch (err) {
-      alert(`Could not parse tracker file: ${(err as Error).message}`);
+      wbAlert(`Could not parse tracker file: ${(err as Error).message}`, { title: 'Import Error' });
     }
   }, []);
 
@@ -703,6 +705,7 @@ export default function App() {
         </MdiWindow>
       )}
 
+      {wbDialogEl}
       <StatusBar />
     </div>
   );

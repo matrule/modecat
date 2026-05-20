@@ -9,6 +9,7 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useStore, useActivePattern } from '../state/store';
 import { BlockPropsDialog } from './BlockPropsDialog';
+import { useWbDialog } from './WbDialog';
 
 interface CtxMenu { posIdx: number; pid: number; x: number; y: number; }
 
@@ -20,6 +21,7 @@ type ListItem =
 export function SongEditor() {
   const [blockPropsOpen, setBlockPropsOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<CtxMenu | null>(null);
+  const { wbConfirm, dialogEl } = useWbDialog();
 
   // Close context menu on any outside click
   const closeCtx = useCallback(() => setCtxMenu(null), []);
@@ -84,9 +86,10 @@ export function SongEditor() {
     return lastMarkerIdx;
   }, [sectionMarkers, songPos]);
 
-  function fillSequenceWith(pid: number) {
+  async function fillSequenceWith(pid: number) {
     const patName = patterns.find((p) => p.id === pid)?.name ?? String(pid);
-    if (!confirm(`Set ALL song positions to block "${patName}"?`)) return;
+    const ok = await wbConfirm(`Set ALL song positions to block "${patName}"?`);
+    if (!ok) return;
     const filled = useStore.getState().song.positions.map(() => pid);
     useStore.setState((st) => ({ song: { ...st.song, positions: filled } }));
     setCtxMenu(null);
@@ -94,6 +97,7 @@ export function SongEditor() {
 
   return (
     <div className="song">
+      {dialogEl}
       {blockPropsOpen && <BlockPropsDialog onClose={() => setBlockPropsOpen(false)} />}
 
       {/* Context menu */}

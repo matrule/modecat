@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import cloud, { type CloudProject } from '../lib/cloud';
 import { importSongFile } from '../state/persist';
 import { useStore } from '../state/store';
+import { useWbDialog } from './WbDialog';
 
 interface Props {
   onClose: () => void;
@@ -15,6 +16,7 @@ export function CloudProjectsDialog({ onClose }: Props) {
   const [loading,  setLoading]    = useState(true);
   const [error,    setError]      = useState<string | null>(null);
   const [deleting, setDeleting]   = useState<string | null>(null);
+  const { wbConfirm, dialogEl }   = useWbDialog();
 
   useEffect(() => {
     cloud.listProjects()
@@ -35,7 +37,8 @@ export function CloudProjectsDialog({ onClose }: Props) {
   }
 
   async function deleteProject(id: string, title: string) {
-    if (!confirm(`Delete "${title}" from the cloud? This cannot be undone.`)) return;
+    const ok = await wbConfirm(`Delete "${title}" from the cloud? This cannot be undone.`, { title: 'Delete Project', danger: true });
+    if (!ok) return;
     setDeleting(id);
     try {
       await cloud.deleteProject(id);
@@ -81,6 +84,8 @@ export function CloudProjectsDialog({ onClose }: Props) {
   };
 
   return (
+    <>
+    {dialogEl}
     <div style={overlay} onMouseDown={onClose}>
       <div style={dialog} onMouseDown={(e) => e.stopPropagation()}>
 
@@ -144,5 +149,6 @@ export function CloudProjectsDialog({ onClose }: Props) {
         </div>
       </div>
     </div>
+    </>
   );
 }
