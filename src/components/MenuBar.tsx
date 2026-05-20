@@ -344,15 +344,13 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
       }
     }
 
-    const cloudItems: MenuDef['items'] = [
+    const cloudItems: MenuDef['items'] = cloudUser ? [
       { kind: 'sep' },
-      cloudUser
-        ? { label: `☁ Signed in as ${cloudUser.email ?? 'user'}`, disabled: true }
-        : { label: '☁ Connect account…', action: () => { setOpenMenu(null); cloud.connectAccount(); } },
-      { label: cloudSaving ? '☁ Saving…' : '☁ Save to Cloud', action: cloudSave, disabled: cloudSaving || !cloudUser },
-      { label: '☁ Open from Cloud…', action: () => { setOpenMenu(null); setCloudOpen(true); }, disabled: !cloudUser },
-      ...(cloudUser ? [{ label: '☁ Sign out', action: () => { setOpenMenu(null); cloud.signOut(); } } as Item] : []),
-    ];
+      { label: `☁ ${cloudUser.email ?? 'Cloud account'}`, disabled: true },
+      { label: cloudSaving ? '☁ Saving…' : '☁ Save to Cloud', action: cloudSave, disabled: cloudSaving },
+      { label: '☁ Open from Cloud…', action: () => { setOpenMenu(null); setCloudOpen(true); } },
+      { label: '☁ Sign out', action: () => { setOpenMenu(null); cloud.signOut(); } },
+    ] : [];
 
     // Insert cloud items before "About" (which is the last item)
     const aboutIdx = projectMenu.items.findIndex(

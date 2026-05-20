@@ -69,6 +69,7 @@ let _supabase: SupabaseClient | null = null
 let _session: Session | null = null
 let _statusListeners: Array<(status: CloudStatus) => void> = []
 let _authListeners: Array<(user: User | null) => void> = []
+let _requestedProjectId: string | null = null
 
 function getClient(): SupabaseClient {
   if (!_supabase) throw new Error('cloud.ts: call cloud.init() before using cloud methods')
@@ -113,6 +114,9 @@ const cloud = {
     const mcToken = params.get('mc_token')
     const mcRefresh = params.get('mc_refresh')
 
+    // Capture optional project to auto-load (set by account platform Open button)
+    _requestedProjectId = params.get('mc_project')
+
     if (mcToken && mcRefresh) {
       const { data, error } = await _supabase.auth.setSession({
         access_token: mcToken,
@@ -128,6 +132,7 @@ const cloud = {
       // Clean tokens from URL immediately so they don't linger in browser history
       params.delete('mc_token')
       params.delete('mc_refresh')
+      params.delete('mc_project')
       const cleanUrl = [
         window.location.pathname,
         params.toString() ? `?${params.toString()}` : '',
@@ -156,6 +161,23 @@ const cloud = {
   /** The signed-in user, or null if not connected. */
   getUser(): User | null {
     return _session?.user ?? null
+  },
+
+  /**
+   * Returns the project ID passed via `mc_project` when the account platform
+   * opened the tracker. Call once after `init()` to auto-load a specific project.
+   * Returns null if no project was requested.
+   *
+   * @example
+   * await cloud.init()
+   * const projectId = cloud.getRequestedProjectId()
+   * if (projectId && cloud.isConnected()) {
+   *   const { data } = await cloud.loadProject(projectId)
+   *   store.setState(data)
+   * }
+   */
+  getRequestedProjectId(): string | null {
+    return _requestedProjectId
   },
 
   /**
