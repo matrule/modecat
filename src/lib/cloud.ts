@@ -54,6 +54,8 @@ export interface SaveProjectOptions {
   title: string
   /** BPM extracted from tracker state */
   bpm?: number
+  /** Number of pattern blocks in the project */
+  blockCount?: number
   /** Tags */
   tags?: string[]
   /** The full tracker state to serialise and upload */
@@ -219,7 +221,7 @@ const cloud = {
 
     notifyStatus('saving')
     try {
-      const { id, title, bpm, tags = [], data } = options
+      const { id, title, bpm, blockCount, tags = [], data } = options
       const filePath = `${user.id}/${id}.json`
 
       // 1. Upload the project JSON to storage
@@ -237,6 +239,7 @@ const cloud = {
           owner_id: user.id,
           title,
           bpm: bpm ?? null,
+          block_count: blockCount ?? null,
           tags,
           file_path: filePath,
           updated_at: new Date().toISOString(),

@@ -3575,19 +3575,19 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   gap: 0;
-  background: var(--wb-black);
-  border-top: 1px solid #001144;
-  padding: 0 8px;
-  height: 18px;
+  background: var(--wb-blue);
+  border-top: 2px solid #003388;
+  padding: 0 10px;
+  height: 22px;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: #445566;
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.5);
   user-select: none;
 }
 
 .statusbar__sep {
-  color: #223344;
-  padding: 0 6px;
+  color: rgba(255,255,255,0.25);
+  padding: 0 8px;
 }
 
 .statusbar__item {
@@ -3595,11 +3595,11 @@ input[type="checkbox"] {
 }
 
 .statusbar__item--on {
-  color: #44AAFF;
+  color: #fff;
 }
 
 .statusbar__item--off {
-  color: #334455;
+  color: rgba(255,255,255,0.35);
 }
 
 /* ---------- Cloud Save Toast ---------- */

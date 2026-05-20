@@ -335,6 +335,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
           id,
           title: s.meta.title || 'Untitled',
           bpm: s.transport.bpm,
+          blockCount: Object.keys(s.patterns).length,
           data: exportSongFile(),
         });
         s.setMeta({ cloudId: id });
