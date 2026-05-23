@@ -191,3 +191,83 @@ export async function loadSongFromFile(file: File): Promise<void> {
   const raw = JSON.parse(text);
   importSongFile(raw);
 }
+
+// ── Instrument file save / load ───────────────────────────────────────────────
+
+export interface InstrumentFileEntry {
+  /** Target slot index (0–31). The dialog lets the user override this. */
+  slot: number;
+  data: SerialisedInstrument;
+}
+
+export interface InstrumentFileFormat {
+  format: 'modecat-instruments';
+  version: 1;
+  instruments: InstrumentFileEntry[];
+}
+
+/** Re-export so the load dialog can hydrate SerialisedInstrument → Instrument. */
+export { deserializeInstrument };
+
+function downloadJson(obj: unknown, filename: string): void {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/** Serialize the currently selected instrument and trigger a browser download. */
+export function saveInstrumentFile(idx: number): void {
+  const inst = useStore.getState().instruments[idx];
+  if (!inst || inst.kind === 'empty') return;
+  const payload: InstrumentFileFormat = {
+    format: 'modecat-instruments',
+    version: 1,
+    instruments: [{ slot: idx, data: serializeInstrument(inst, true) }],
+  };
+  const safe = (inst.name || `slot${idx}`).replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+  downloadJson(payload, `${safe}.modecat-inst.json`);
+}
+
+/** Serialize all non-empty instruments and trigger a browser download. */
+export function saveAllInstrumentsFile(songTitle = 'instruments'): void {
+  const entries: InstrumentFileEntry[] = [];
+  useStore.getState().instruments.forEach((inst, idx) => {
+    if (inst.kind !== 'empty') {
+      entries.push({ slot: idx, data: serializeInstrument(inst, true) });
+    }
+  });
+  if (entries.length === 0) return;
+  const payload: InstrumentFileFormat = { format: 'modecat-instruments', version: 1, instruments: entries };
+  const safe = (songTitle || 'instruments').replace(/\s+/g, '_').toLowerCase();
+  downloadJson(payload, `${safe}-instruments.modecat-inst.json`);
+}
+
+/**
+ * Parse a .modecat-inst.json file (or a plain serialized instrument object)
+ * into an array of InstrumentFileEntry objects ready for the load dialog.
+ */
+export function parseInstrumentFile(text: string): InstrumentFileEntry[] {
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== 'object') throw new Error('Invalid instrument file');
+  const obj = parsed as Record<string, unknown>;
+
+  // Standard versioned format
+  if (obj.format === 'modecat-instruments' && Array.isArray(obj.instruments)) {
+    return obj.instruments as InstrumentFileEntry[];
+  }
+  // Plain serialized instrument (e.g. hand-crafted or older export)
+  if (typeof obj.kind === 'string') {
+    return [{ slot: 0, data: parsed as SerialisedInstrument }];
+  }
+  // Raw array of entries
+  if (Array.isArray(parsed)) {
+    return parsed as InstrumentFileEntry[];
+  }
+  throw new Error('Unrecognized instrument file format. Expected a .modecat-inst.json file.');
+}

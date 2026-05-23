@@ -3,8 +3,8 @@
  *
  * Single row, no wrapping. Layout matches V5 manual:
  *
- *   [Play Song][Cont Song][Play Block][Cont Block]  [M I]
- *   [Inst Params…][Edit SynthS…][Edit Sample…]      [■ Stop]
+ *   [Play Song][Cont Song][Play Block][Cont Block][■ Stop]  [M I]
+ *   [Inst Params…][Edit SynthS…][Edit Sample…]              [⚠ Panic]
  *
  * Edit / Chord / Spc toggles belong in the per-track On/Off row (#56),
  * not here — removed from this component.
@@ -92,6 +92,16 @@ export function TransportBar({ seq, onInstParams, onEditSynth, onEditSample, onE
         Cont Block
       </button>
 
+      <button
+        className="btn transport-btn"
+        type="button" tabIndex={-1}
+        data-pressed={!playing}
+        onClick={() => seq.stop()}
+        title="Stop playback"
+      >
+        ■ Stop
+      </button>
+
       {/* MIDI status indicator box — M = bridge connected, I = input active */}
       <div
         className="transport-midi-box"
@@ -135,18 +145,9 @@ export function TransportBar({ seq, onInstParams, onEditSynth, onEditSample, onE
         Notation…
       </button>
 
-      {/* Stop + Panic pushed to the right */}
+      {/* Panic pushed to the right */}
       <div className="transport-bar__spacer" />
 
-      <button
-        className="btn transport-btn"
-        type="button" tabIndex={-1}
-        data-pressed={!playing}
-        onClick={() => seq.stop()}
-        title="Stop playback"
-      >
-        ■ Stop
-      </button>
       <button
         className="btn transport-btn transport-btn--danger"
         type="button" tabIndex={-1}

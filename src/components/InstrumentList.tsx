@@ -38,7 +38,12 @@ const kindLabel: Record<Instrument['kind'], string> = {
   empty: '--',
 };
 
-export function InstrumentList() {
+interface InstrumentListProps {
+  /** Open the Sample Editor MDI window (for sample/hybrid instruments). */
+  onEditSample?: () => void;
+}
+
+export function InstrumentList({ onEditSample }: InstrumentListProps = {}) {
   const instruments = useStore((s) => s.instruments);
   const selected = useStore((s) => s.selectedInstrument);
   const setSelected = useStore((s) => s.setSelectedInstrument);
@@ -147,9 +152,19 @@ export function InstrumentList() {
               const slotLabel = idx.toString(16).toUpperCase().padStart(2, '0');
               const selLabel  = selected.toString(16).toUpperCase().padStart(2, '0');
               const canReassign = idx !== selected && selected > 0;
-              const sep = document.createElement('div');
-              sep.className = 'ctx-menu__sep';
+              const canEditSample = inst.kind === 'sample' || inst.kind === 'hybrid';
+              const sep1 = document.createElement('div');
+              sep1.className = 'ctx-menu__sep';
+              const sep2 = document.createElement('div');
+              sep2.className = 'ctx-menu__sep';
               menu.append(
+                mkItem('Edit Sample', !canEditSample, () => {
+                  onEditSample?.();
+                }),
+                mkItem('Edit Properties', false, () => {
+                  setParamsOpen(idx);
+                }),
+                sep1,
                 mkItem(`Copy Instrument ${slotLabel}`, false, () => {
                   instClipboard.current = cloneInstrument(inst);
                   setHasClipboard(true);
@@ -158,7 +173,7 @@ export function InstrumentList() {
                   if (!instClipboard.current) return;
                   setInstrument(idx, cloneInstrument(instClipboard.current));
                 }),
-                sep,
+                sep2,
                 mkItem(
                   `Reassign ${selLabel} → ${slotLabel}  (this block)`,
                   !canReassign,

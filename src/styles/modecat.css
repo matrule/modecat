@@ -1406,13 +1406,14 @@ input[type="checkbox"] {
 
 .ip-type-btns {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
 .ip-type-btn {
-  font-size: 14px;
-  padding: 1px 8px;
-  min-width: 60px;
+  font-size: 13px;
+  padding: 1px 6px;
+  min-width: 44px;
 }
 .ip-type-btn.is-active {
   background: var(--wb-orange);
@@ -2281,12 +2282,23 @@ input[type="checkbox"] {
   min-width: 3.5ch;
   flex-shrink: 0;
   font-size: 0.8em;
+  /* Single <pre> node — line-height must match textarea exactly */
   line-height: 1.5;
   color: #224433;
+  /* pre resets */
+  margin: 0;
+  white-space: pre;
 }
 
-.script-editor__line-num {
-  line-height: 1.5;
+.script-editor__pcm-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: #556688;
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0 4px;
 }
 
 .script-editor__code {

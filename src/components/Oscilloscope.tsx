@@ -120,9 +120,10 @@ export function Oscilloscope({ seq }: Props) {
     const ctx2d = canvas.getContext('2d');
     if (!ctx2d) return;
 
-    const analysers = seq.getAnalysers();
-    const bufLen    = analysers[0]?.frequencyBinCount ?? 256;
-    const dataBuffers = analysers.map(() => new Uint8Array(bufLen));
+    // dataBuffers are sized to the first analyser's fftSize.  We lazily resize
+    // them if the analysers array is initially empty (AudioContext not yet
+    // created) and later gets populated after seq.start() is called.
+    let dataBuffers: Uint8Array<ArrayBuffer>[] = [];
 
     /** Draw one frame — called both during animation and for the static stopped state. */
     function drawFrame() {
@@ -131,6 +132,16 @@ export function Oscilloscope({ seq }: Props) {
       const W = canvas.width;
       const H = canvas.height;
       if (W === 0 || H === 0) return;
+
+      // Fetch analysers fresh each frame so we never stale on an empty snapshot
+      // captured before seq.start() had a chance to create the AudioContext.
+      const analysers = seq.getAnalysers();
+
+      // Lazily (re)size the data buffers to match the current analyser fftSize.
+      const bufLen = analysers[0]?.frequencyBinCount ?? 256;
+      if (dataBuffers.length !== analysers.length || (dataBuffers[0]?.length ?? 0) !== bufLen) {
+        dataBuffers = analysers.map(() => new Uint8Array(new ArrayBuffer(bufLen)));
+      }
 
       // Background
       ctx2d.fillStyle = BG_COLOR;

@@ -14,7 +14,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWbDialog } from './WbDialog';
 import { useStore } from '../state/store';
-import { downloadSong, exportSongFile, importSongFile, loadSongFromFile } from '../state/persist';
+import { downloadSong, exportSongFile, importSongFile, loadSongFromFile, saveInstrumentFile, saveAllInstrumentsFile, parseInstrumentFile } from '../state/persist';
+import type { InstrumentFileEntry } from '../state/persist';
+import { InstrumentLoadDialog } from './InstrumentLoadDialog';
 import modecatLogo from '../assets/modecat.jpeg';
 import cloud from '../lib/cloud';
 import type { User } from '@supabase/supabase-js';
@@ -294,6 +296,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
   const [cloudOpen, setCloudOpen] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const [instLoadEntries, setInstLoadEntries] = useState<InstrumentFileEntry[] | null>(null);
   const { wbPrompt, wbConfirm, wbAlert, dialogEl } = useWbDialog();
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -320,7 +323,7 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     return () => document.removeEventListener('keydown', handleKey);
   }, []);
 
-  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic, wbPrompt, wbConfirm, wbAlert);
+  const menus = useMenuDefs(setShowAbout, canUndo, canRedo, onUndo, onRedo, onProgKeys, onSongOptions, onBlockProps, onMidiMessages, onMidiImport, onModImport, onSampleList, onInsertLine, onDeleteLine, onFlushCurrent, onFlushUnused, onRangeCurrentTrack, onRangeCurrentBlock, noteNaming, onToggleNoteNaming, visibleTracks, onSetVisibleTracks, onEditSynth, onEditSample, onEditScript, onEditDrum, onVolumeMixer, onSampleBrowser, onClipPalette, onInstParams, onPanic, wbPrompt, wbConfirm, wbAlert, setInstLoadEntries);
 
   // ── Inject cloud items into the Project menu ────────────────────────────────
   const projectMenu = menus[0];
@@ -386,6 +389,12 @@ export function MenuBar({ canUndo = false, canRedo = false, onUndo, onRedo, onPr
     <>
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
       {cloudOpen && <CloudProjectsDialog onClose={() => setCloudOpen(false)} />}
+      {instLoadEntries && (
+        <InstrumentLoadDialog
+          entries={instLoadEntries}
+          onClose={() => setInstLoadEntries(null)}
+        />
+      )}
       {dialogEl}
       {toast && (
         <div className={`cloud-toast cloud-toast--${toast.ok ? 'ok' : 'err'}`}>
@@ -484,6 +493,7 @@ function useMenuDefs(
   wbPrompt?: (title: string, opts?: { label?: string; defaultValue?: string; allowEmpty?: boolean }) => Promise<string | null>,
   wbConfirm?: (message: string, opts?: { title?: string; danger?: boolean }) => Promise<boolean>,
   wbAlert?: (message: string, opts?: { title?: string }) => Promise<void>,
+  setInstLoadEntries?: (entries: InstrumentFileEntry[] | null) => void,
 ): MenuDef[] {
   const meta        = useStore((s) => s.meta);
   const setMeta     = useStore((s) => s.setMeta);
@@ -620,7 +630,7 @@ function useMenuDefs(
         { label: 'Playing Sequence…', action: stub('Playing Sequence') },
         { kind: 'sep' },
         { label: 'Set Options…', action: onSongOptions ?? stub('Song Options') },
-        { label: 'Set Volumes…', action: stub('Track Volumes') },
+        { label: 'Set Volumes…', action: onVolumeMixer ?? stub('Track Volumes') },
         { kind: 'sep' },
         { label: 'Set Annotation…', action: setAnnotation },
         { kind: 'sep' },
@@ -905,12 +915,52 @@ function useMenuDefs(
         { kind: 'sep' },
         {
           label: 'Load Instrument(s)…',
-          action: stub('Load Instrument — use instrument list drag/drop for now'),
           shortcut: 'Ctrl+I',
+          action: () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json,.modecat-inst.json';
+            input.onchange = async () => {
+              const f = input.files?.[0];
+              if (!f) return;
+              try {
+                const text = await f.text();
+                const entries = parseInstrumentFile(text);
+                if (entries.length === 0) {
+                  wbAlert?.('No instruments found in that file.', { title: 'Load Instrument(s)' });
+                  return;
+                }
+                setInstLoadEntries?.(entries);
+              } catch (err) {
+                wbAlert?.(`Could not read instrument file: ${err instanceof Error ? err.message : String(err)}`, { title: 'Load Error' });
+              }
+            };
+            input.click();
+          },
         },
         {
           label: 'Save Instrument',
-          action: stub('Save Instrument'),
+          action: () => {
+            const idx = useStore.getState().selectedInstrument;
+            const inst = useStore.getState().instruments[idx];
+            if (!inst || inst.kind === 'empty') {
+              wbAlert?.('The selected slot is empty — nothing to save.', { title: 'Save Instrument' });
+              return;
+            }
+            saveInstrumentFile(idx);
+          },
+        },
+        {
+          label: 'Save All Instruments',
+          action: () => {
+            const s = useStore.getState();
+            const hasAny = s.instruments.some((i) => i.kind !== 'empty');
+            if (!hasAny) {
+              wbAlert?.('No instruments to save.', { title: 'Save All Instruments' });
+              return;
+            }
+            saveAllInstrumentsFile(s.meta.title || 'instruments');
+          },
         },
         { kind: 'sep' },
         {

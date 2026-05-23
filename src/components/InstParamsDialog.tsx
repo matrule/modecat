@@ -117,11 +117,37 @@ export function InstParamsDialog({ instIdx, onClose }: Props) {
     } else if (newKind === 'midi') {
       setInstrument(instIdx, defaultMidi(instIdx, name));
     } else if (newKind === 'sample') {
-      setInstrument(instIdx, defaultSample(name));
+      // SMP ← HYB: carry over PCM + shared sample fields, drop synth-only fields.
+      if (inst.kind === 'hybrid') {
+        const h = inst as HybridInstrument;
+        setInstrument(instIdx, {
+          ...defaultSample(name),
+          pcm: h.pcm, sampleRate: h.sampleRate, baseNote: h.baseNote,
+          loopEnabled: h.loopEnabled, loopStart: h.loopStart, loopEnd: h.loopEnd,
+          volume: h.volume, transpose: h.transpose, finetune: h.finetune,
+          defaultPitch: h.defaultPitch, suppressNoteOff: h.suppressNoteOff,
+          attackMs: h.attackMs, decayMs: h.decayMs, sustain: h.sustain, releaseMs: h.releaseMs,
+        });
+      } else {
+        setInstrument(instIdx, defaultSample(name));
+      }
     } else if (newKind === 'synth') {
       setInstrument(instIdx, defaultSynth(name));
     } else if (newKind === 'hybrid') {
-      setInstrument(instIdx, defaultHybrid(name));
+      // HYB ← SMP: carry over PCM + shared sample fields, add synth defaults.
+      if (inst.kind === 'sample') {
+        const s = inst as SampleInstrument;
+        setInstrument(instIdx, {
+          ...defaultHybrid(name),
+          pcm: s.pcm, sampleRate: s.sampleRate, baseNote: s.baseNote,
+          loopEnabled: s.loopEnabled, loopStart: s.loopStart, loopEnd: s.loopEnd,
+          volume: s.volume, transpose: s.transpose, finetune: s.finetune,
+          defaultPitch: s.defaultPitch, suppressNoteOff: s.suppressNoteOff,
+          attackMs: s.attackMs, decayMs: s.decayMs, sustain: s.sustain, releaseMs: s.releaseMs,
+        });
+      } else {
+        setInstrument(instIdx, defaultHybrid(name));
+      }
     }
   }
 

@@ -500,7 +500,7 @@ export default function App() {
         </main>
         {/* Right panel: InstrumentList is now always visible — no tab toggle */}
         <aside className="modecat__side">
-          <InstrumentList />
+          <InstrumentList onEditSample={openSampleMdi} />
         </aside>
       </div>
 

@@ -193,6 +193,37 @@ async function decodeEntry(entry: FileEntry): Promise<AudioBuffer | null> {
 let _libSections: Section[] | null = null;
 let _libUserLibRoot = '';
 
+/**
+ * Add a sample instrument to the in-memory MY LIBRARY "Saved" category so it
+ * appears in the SampleBrowser immediately without re-scanning a folder.
+ * Called by SampleEditor's "→ Library" button.
+ */
+export function addSampleToLibrary(name: string, pcm: Float32Array, sampleRate: number): void {
+  if (!_libSections) _libSections = buildBuiltinSection();
+  const entry: FileEntry = {
+    name: `${name}.wav`,
+    role: '',
+    sizeBytes: pcm.byteLength,
+    pcm: new Float32Array(pcm),   // copy so edits don't mutate the library entry
+    sampleRateHint: sampleRate,
+  };
+  const savedCatId = 'user-saved';
+  _libSections = _libSections.map((sec) => {
+    if (sec.id !== 'user') return sec;
+    const existing = sec.categories.find((c) => c.id === savedCatId);
+    if (existing) {
+      // Replace any entry with the same name, otherwise append
+      const files = [
+        ...existing.files.filter((f) => f.name !== entry.name),
+        entry,
+      ];
+      return { ...sec, categories: sec.categories.map((c) => c.id === savedCatId ? { ...c, files } : c) };
+    }
+    const newCat: Category = { id: savedCatId, label: 'Saved', files: [entry] };
+    return { ...sec, categories: [newCat, ...sec.categories] };
+  });
+}
+
 function buildBuiltinSection(): Section[] {
   const cats: Category[] = DRUM_KITS.map((kit) => ({
     id: `builtin-${kit.id}`,

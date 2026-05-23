@@ -45,7 +45,7 @@ function lerpWaveform(a: Float32Array, b: Float32Array, t: number): Float32Array
   return out;
 }
 
-export function SynthEditor({ idx, inst }: { idx: number; inst: SynthInstrument }) {
+export function SynthEditor({ idx, inst, isHybrid = false }: { idx: number; inst: SynthInstrument; isHybrid?: boolean }) {
   const setInstrument = useStore((s) => s.setInstrument);
 
   // Which waveform slot is being edited (0-based).
@@ -225,11 +225,11 @@ export function SynthEditor({ idx, inst }: { idx: number; inst: SynthInstrument 
 
   // ── render ────────────────────────────────────────────────────────────────
 
-  const numWaves = inst.waveforms.length;
+  const numWaves = isHybrid ? 0 : (inst.waveforms?.length ?? 0);
 
   return (
     <div className="panel col">
-      <div className="panel__title">Slot {String(idx).padStart(2, '0')} — Synth</div>
+      <div className="panel__title">Slot {String(idx).padStart(2, '0')} — {isHybrid ? 'Hybrid' : 'Synth'}</div>
 
       {/* Name */}
       <div className="field-row">
@@ -243,88 +243,105 @@ export function SynthEditor({ idx, inst }: { idx: number; inst: SynthInstrument 
 
       <div className="hr" />
 
-      {/* Waveform bank navigation */}
-      <div className="row" style={{ alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>WAVE</span>
-        <button
-          className="btn"
-          type="button"
-          disabled={clampedWaveIdx === 0}
-          onClick={() => setWaveIdx(clampedWaveIdx - 1)}
-        >◀</button>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', minWidth: '4ch', textAlign: 'center' }}>
-          {String(clampedWaveIdx + 1).padStart(2, '0')}/{String(numWaves).padStart(2, '0')}
-        </span>
-        <button
-          className="btn"
-          type="button"
-          disabled={clampedWaveIdx >= numWaves - 1}
-          onClick={() => setWaveIdx(clampedWaveIdx + 1)}
-        >▶</button>
-        <button className="btn" type="button" title="Add waveform slot" onClick={addWaveform}>+</button>
-        <button className="btn" type="button" title="Remove this waveform slot" onClick={removeWaveform} disabled={numWaves <= 1}>−</button>
-      </div>
+      {isHybrid ? (
+        /* Hybrid: waveform is a PCM sample — direct editing belongs in Sample Editor */
+        <div style={{
+          padding: '0.4rem 0.5rem',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.74rem',
+          color: '#AADDFF',
+          background: '#001133',
+          border: '1px solid #003366',
+          borderRadius: 2,
+        }}>
+          Waveform: PCM sample — edit in Sample Editor
+        </div>
+      ) : (
+        <>
+          {/* Waveform bank navigation */}
+          <div className="row" style={{ alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>WAVE</span>
+            <button
+              className="btn"
+              type="button"
+              disabled={clampedWaveIdx === 0}
+              onClick={() => setWaveIdx(clampedWaveIdx - 1)}
+            >◀</button>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', minWidth: '4ch', textAlign: 'center' }}>
+              {String(clampedWaveIdx + 1).padStart(2, '0')}/{String(numWaves).padStart(2, '0')}
+            </span>
+            <button
+              className="btn"
+              type="button"
+              disabled={clampedWaveIdx >= numWaves - 1}
+              onClick={() => setWaveIdx(clampedWaveIdx + 1)}
+            >▶</button>
+            <button className="btn" type="button" title="Add waveform slot" onClick={addWaveform}>+</button>
+            <button className="btn" type="button" title="Remove this waveform slot" onClick={removeWaveform} disabled={numWaves <= 1}>−</button>
+          </div>
 
-      {/* Waveform canvas */}
-      <canvas
-        ref={canvasRef}
-        style={{ width: '100%', height: 120, cursor: 'crosshair', display: 'block' }}
-        onPointerDown={(e) => {
-          drawing.current = true;
-          pickSample(e);
-          (e.target as Element).setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => { if (drawing.current) pickSample(e); }}
-        onPointerUp={() => { drawing.current = false; }}
-        onPointerLeave={() => { drawing.current = false; }}
-      />
+          {/* Waveform canvas */}
+          <canvas
+            ref={canvasRef}
+            style={{ width: '100%', height: 120, cursor: 'crosshair', display: 'block' }}
+            onPointerDown={(e) => {
+              drawing.current = true;
+              pickSample(e);
+              (e.target as Element).setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => { if (drawing.current) pickSample(e); }}
+            onPointerUp={() => { drawing.current = false; }}
+            onPointerLeave={() => { drawing.current = false; }}
+          />
 
-      {/* Presets */}
-      <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', alignSelf: 'center' }}>PRESET:</span>
-        {(['saw', 'square', 'sine', 'triangle', 'noise'] as PresetName[]).map((p) => (
-          <button key={p} className="btn" type="button" onClick={() => applyPreset(p)}>
-            {p === 'saw' ? 'Saw' : p === 'square' ? 'Sqr' : p === 'sine' ? 'Sin' : p === 'triangle' ? 'Tri' : 'Nse'}
-          </button>
-        ))}
-      </div>
+          {/* Presets */}
+          <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', alignSelf: 'center' }}>PRESET:</span>
+            {(['saw', 'square', 'sine', 'triangle', 'noise'] as PresetName[]).map((p) => (
+              <button key={p} className="btn" type="button" onClick={() => applyPreset(p)}>
+                {p === 'saw' ? 'Saw' : p === 'square' ? 'Sqr' : p === 'sine' ? 'Sin' : p === 'triangle' ? 'Tri' : 'Nse'}
+              </button>
+            ))}
+          </div>
 
-      {/* Waveform range operations */}
-      <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', alignSelf: 'center' }}>WAVE:</span>
-        <button className="btn" type="button" title="Cut: copy waveform to clipboard and zero-fill" onClick={cutWave}>Cut</button>
-        <button className="btn" type="button" title="Copy waveform to clipboard" onClick={copyWave}>Copy</button>
-        <button className="btn" type="button" title="Paste waveform from clipboard" onClick={pasteWave} disabled={!waveClip}>Paste</button>
-        <button className="btn" type="button" title="Clear: zero-fill this waveform slot" onClick={clearWave}>Clear</button>
-        <button className="btn" type="button" title="Double: insert a duplicate of this slot after it" onClick={doubleWave}>Double</button>
-        <button className="btn" type="button" title="Reverse sample order of this waveform" onClick={reverseWave}>Reverse</button>
-      </div>
+          {/* Waveform range operations */}
+          <div className="row" style={{ flexWrap: 'wrap', gap: '0.3rem' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', alignSelf: 'center' }}>WAVE:</span>
+            <button className="btn" type="button" title="Cut: copy waveform to clipboard and zero-fill" onClick={cutWave}>Cut</button>
+            <button className="btn" type="button" title="Copy waveform to clipboard" onClick={copyWave}>Copy</button>
+            <button className="btn" type="button" title="Paste waveform from clipboard" onClick={pasteWave} disabled={!waveClip}>Paste</button>
+            <button className="btn" type="button" title="Clear: zero-fill this waveform slot" onClick={clearWave}>Clear</button>
+            <button className="btn" type="button" title="Double: insert a duplicate of this slot after it" onClick={doubleWave}>Double</button>
+            <button className="btn" type="button" title="Reverse sample order of this waveform" onClick={reverseWave}>Reverse</button>
+          </div>
 
-      <div className="hr" />
+          <div className="hr" />
 
-      {/* Transformation */}
-      <div className="row" style={{ alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-        <span>XFORM</span>
-        <label>From</label>
-        <input
-          type="number" min={0} max={numWaves - 1}
-          value={xformFrom}
-          style={{ width: '4ch' }}
-          onChange={(e) => setXformFrom(Math.max(0, Math.min(numWaves - 1, Number(e.target.value))))}
-        />
-        <label>To</label>
-        <input
-          type="number" min={0} max={numWaves - 1}
-          value={xformTo}
-          style={{ width: '4ch' }}
-          onChange={(e) => setXformTo(Math.max(0, Math.min(numWaves - 1, Number(e.target.value))))}
-        />
-        <button className="btn" type="button" onClick={doTransform} title="Linear-interpolate in-between waveform slots">
-          Do Transform
-        </button>
-      </div>
+          {/* Transformation */}
+          <div className="row" style={{ alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <span>XFORM</span>
+            <label>From</label>
+            <input
+              type="number" min={0} max={numWaves - 1}
+              value={xformFrom}
+              style={{ width: '4ch' }}
+              onChange={(e) => setXformFrom(Math.max(0, Math.min(numWaves - 1, Number(e.target.value))))}
+            />
+            <label>To</label>
+            <input
+              type="number" min={0} max={numWaves - 1}
+              value={xformTo}
+              style={{ width: '4ch' }}
+              onChange={(e) => setXformTo(Math.max(0, Math.min(numWaves - 1, Number(e.target.value))))}
+            />
+            <button className="btn" type="button" onClick={doTransform} title="Linear-interpolate in-between waveform slots">
+              Do Transform
+            </button>
+          </div>
 
-      <div className="hr" />
+          <div className="hr" />
+        </>
+      )}
 
       {/* Volume program */}
       <div className="field-row" style={{ alignItems: 'flex-start' }}>
@@ -371,17 +388,20 @@ export function SynthEditor({ idx, inst }: { idx: number; inst: SynthInstrument 
           spellCheck={false}
         />
       </div>
-      <div className="field-row">
-        <label>WAVE SPD</label>
-        <input
-          type="number" min={1} max={255}
-          value={inst.waveSpeed}
-          onChange={(e) => setInstrument(idx, { ...inst, waveSpeed: Math.max(1, Math.min(255, Number(e.target.value))) })}
-          title="Waveform cycles between each pitch-program step advance"
-        />
-      </div>
-
-      <div className="hr" />
+      {!isHybrid && (
+        <>
+          <div className="field-row">
+            <label>WAVE SPD</label>
+            <input
+              type="number" min={1} max={255}
+              value={inst.waveSpeed}
+              onChange={(e) => setInstrument(idx, { ...inst, waveSpeed: Math.max(1, Math.min(255, Number(e.target.value))) })}
+              title="Waveform cycles between each pitch-program step advance"
+            />
+          </div>
+          <div className="hr" />
+        </>
+      )}
 
       {/* AHDSR envelope */}
       <div className="field-row">
@@ -498,7 +518,7 @@ export function SynthEditorMdi() {
   const idx  = useStore((s) => s.selectedInstrument);
   const inst = useStore((s) => s.instruments[idx]);
 
-  if (!inst || inst.kind !== 'synth') {
+  if (!inst || (inst.kind !== 'synth' && inst.kind !== 'hybrid')) {
     return (
       <div style={{
         padding: '1.2rem',
@@ -508,13 +528,21 @@ export function SynthEditorMdi() {
         background: '#000022',
         minHeight: 80,
       }}>
-        No synth instrument selected.
+        No synth or hybrid instrument selected.
         <br />
         <span style={{ color: '#AADDFF' }}>
-          Select a Synth slot in the instrument list, then re-open this window.
+          Select a Synth or Hybrid slot in the instrument list, then re-open this window.
         </span>
       </div>
     );
+  }
+
+  if (inst.kind === 'hybrid') {
+    // Cast hybrid to SynthInstrument with a dummy waveforms array so the
+    // shared SynthEditor fields (AHDSR, pitchProg, volProg, etc.) work.
+    // The waveform bank sections are hidden when isHybrid=true.
+    const aseSynth = { ...inst, waveforms: [] } as unknown as SynthInstrument;
+    return <SynthEditor idx={idx} inst={aseSynth} isHybrid />;
   }
 
   return <SynthEditor idx={idx} inst={inst as SynthInstrument} />;

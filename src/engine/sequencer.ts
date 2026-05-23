@@ -249,7 +249,15 @@ interface ActiveNote {
 export class Sequencer {
   private bridge: BridgeClient;
   private audioCtx: AudioContext | null = null;
+  /** Fallback interval handle — used only when AudioWorklet is unavailable. */
   private timer: number | null = null;
+  /** AudioWorklet clock node — preferred over setInterval when available. */
+  private clockNode: AudioWorkletNode | null = null;
+  /**
+   * Cached promise for audioWorklet.addModule().  Resolved on first call;
+   * reused on subsequent start() calls so the module is only fetched once.
+   */
+  private _workletLoadPromise: Promise<void> | null = null;
   /** Clip library snapshot updated each tick — used by resolveRow. */
   private _clips: Clip[] = [];
   /**
@@ -303,12 +311,15 @@ export class Sequencer {
   }
 
   start() {
-    if (this.timer != null) return;
+    // Already running — guard against double-start from both clock sources.
+    if (this.timer != null || this.clockNode != null) return;
+
     const s = useStore.getState();
     this.row = s.transport.row;
     this.songPos = s.transport.songPos;
     this.lastJumpVersion = s.songJumpVersion;
     this.nextRowAt = performance.now();
+
     if (!this.audioCtx) {
       const Ctor = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
       try { this.audioCtx = new Ctor(); } catch { this.audioCtx = null; }
@@ -333,14 +344,81 @@ export class Sequencer {
         });
       }
     }
+
     this.audioCtx?.resume?.();
-    this.timer = window.setInterval(() => this.tick(), LOOKAHEAD_INTERVAL_MS);
+
+    // Start the clock — prefers AudioWorklet, falls back to setInterval.
+    void this._startClock();
+  }
+
+  /**
+   * Start the sequencer clock using an AudioWorklet node when available, or
+   * fall back to window.setInterval.
+   *
+   * AudioWorklet runs on the audio rendering thread, making it immune to
+   * main-thread jank and browser background-tab throttling of setInterval.
+   * The tick() handler and all Web Audio scheduling remain on the main thread;
+   * only the clock signal moves to the audio thread.
+   */
+  private async _startClock(): Promise<void> {
+    const ctx = this.audioCtx;
+
+    if (!ctx) {
+      // No audio context — plain timer is fine (preview-only mode).
+      this.timer = window.setInterval(() => this.tick(), LOOKAHEAD_INTERVAL_MS);
+      return;
+    }
+
+    try {
+      // Cache the addModule promise so repeated start/stop cycles only fetch
+      // the processor script once per AudioContext lifetime.
+      if (!this._workletLoadPromise) {
+        const url = new URL('./clock-processor.js', import.meta.url);
+        this._workletLoadPromise = ctx.audioWorklet.addModule(url.href);
+      }
+      await this._workletLoadPromise;
+
+      // Abort if the sequencer was stopped while we were waiting for the module.
+      if (!useStore.getState().transport.playing) return;
+
+      const samplesPerTick = Math.round(ctx.sampleRate * LOOKAHEAD_INTERVAL_MS / 1000);
+      this.clockNode = new AudioWorkletNode(ctx, 'mc-clock', {
+        processorOptions: { samplesPerTick },
+        numberOfInputs:   0,
+        numberOfOutputs:  1,
+        outputChannelCount: [1],
+      });
+      this.clockNode.port.onmessage = () => this.tick();
+      // The node must be connected to the graph or some browsers won't schedule
+      // its process() callback.  Route through a silent gain so it never reaches
+      // speakers on its own.
+      const silence = ctx.createGain();
+      silence.gain.value = 0;
+      this.clockNode.connect(silence);
+      silence.connect(ctx.destination);
+    } catch (err) {
+      // AudioWorklet not available (e.g. non-HTTPS, old browser, unit tests).
+      // Fall back to setInterval — identical behaviour, just lower precision
+      // when the tab is backgrounded.
+      console.warn('[Sequencer] AudioWorklet clock unavailable, using setInterval:', err);
+      this._workletLoadPromise = null; // allow retry next time
+      if (useStore.getState().transport.playing) {
+        this.timer = window.setInterval(() => this.tick(), LOOKAHEAD_INTERVAL_MS);
+      }
+    }
   }
 
   stop() {
+    // Stop the setInterval fallback clock (if active).
     if (this.timer != null) {
       window.clearInterval(this.timer);
       this.timer = null;
+    }
+    // Stop the AudioWorklet clock (if active).
+    if (this.clockNode) {
+      this.clockNode.port.postMessage('stop');
+      this.clockNode.disconnect();
+      this.clockNode = null;
     }
     this.allNotesOff();
     useStore.setState((s) => ({ transport: { ...s.transport, playing: false } }));
