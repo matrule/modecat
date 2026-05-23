@@ -242,6 +242,14 @@ interface ActiveNote {
    * one-shot percussion so short hits (hi-hats, claps) aren't cut off.
    */
   suppressNoteOff?: boolean;
+  /**
+   * AudioContext.currentTime (seconds) when this note's source started.
+   * Used to compute the loop phase when the same looping sample is retriggered,
+   * so the new source picks up exactly where the old one would have been.
+   */
+  tStartCtx?: number;
+  /** Playback rate at trigger time, paired with tStartCtx for loop-phase calc. */
+  loopBaseRate?: number;
 }
 
 // ── Sequencer class ───────────────────────────────────────────────────────────
@@ -1222,11 +1230,16 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
     // Apply instrument transpose; keep finetune separate as a fractional semitone
     // so it feeds directly into the playback rate rather than being rounded to
     // the nearest whole note (which would cause a pitch step of up to ±0.5st).
-    let effectiveNote = cell.note + inst.transpose;
+    // ignorePitch: play at the sample's natural pitch (baseNote) regardless of
+    // the note entered in the tracker — transpose and 0x11/0x12 are also ignored.
+    const ignorePitch = (inst as unknown as { ignorePitch?: boolean }).ignorePitch ?? false;
+    let effectiveNote = ignorePitch ? inst.baseNote : cell.note + inst.transpose;
     effectiveNote = Math.max(1, Math.min(127, effectiveNote));
 
     // One-shot pitch offset (0x11/0x12); portamento overrides in a moment.
-    const semidelta = cell.cmd === 0x11 ? cell.data : cell.cmd === 0x12 ? -cell.data : 0;
+    // When ignorePitch is set, 0x11/0x12 are also suppressed.
+    const semidelta = ignorePitch ? 0
+      : cell.cmd === 0x11 ? cell.data : cell.cmd === 0x12 ? -cell.data : 0;
     // finetune range: -8..+7 (each unit = 1/8 semitone). Include fractionally.
     const baseRate = Math.pow(2, (effectiveNote - inst.baseNote + semidelta + inst.finetune / 8) / 12);
 
@@ -1365,8 +1378,28 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
       }
     }
 
-    // ── Sample offset (19xx) ──────────────────────────────────────────────
-    const offsetSecs = cell.cmd === 0x19 ? (cell.data * 256) / inst.sampleRate : 0;
+    // ── Sample offset (19xx / loop phase alignment) ───────────────────────
+    // For looping samples retriggered on the same channel with the same
+    // instrument, calculate where in the loop the playback should be rather
+    // than restarting from 0 — this gives seamless breakbeat/pad looping
+    // across block and section boundaries with no gap or overlap.
+    let offsetSecs = cell.cmd === 0x19 ? (cell.data * 256) / inst.sampleRate : 0;
+    if (cell.cmd !== 0x19 && inst.loopEnabled) {
+      const prev = this.active[ch];
+      if (prev?.tStartCtx !== undefined && prev.loopBaseRate !== undefined
+          && prev.instrumentIndex === cell.instrument) {
+        const loopStartSecs = inst.loopStart / inst.sampleRate;
+        const loopEndSecs   = inst.loopEnd > 0
+          ? Math.min(inst.loopEnd, buf.length) / inst.sampleRate
+          : buf.duration;
+        const loopDurSecs = loopEndSecs - loopStartSecs;
+        if (loopDurSecs > 0.001) {
+          const elapsedSecs = tStart - prev.tStartCtx;
+          const posInLoop   = (elapsedSecs * prev.loopBaseRate) % loopDurSecs;
+          offsetSecs = loopStartSecs + Math.max(0, posInLoop);
+        }
+      }
+    }
 
     // Route through channelGain → analyser so the oscilloscope UI can read it
     // and the Volume Mixer can control per-channel volume.
@@ -1420,6 +1453,10 @@ if (cell.cmd === 0x06 || cell.cmd === 0x05 || cell.cmd === 0x0d || cell.cmd === 
         // One-shot flag: when true the source is not stopped if a subsequent
         // note fires on this channel before the buffer finishes playing.
         suppressNoteOff: inst.suppressNoteOff,
+        // Loop phase tracking: lets the next retrigger of a looping sample
+        // start at the correct position rather than from 0.
+        tStartCtx: inst.loopEnabled ? tStart : undefined,
+        loopBaseRate: inst.loopEnabled ? baseRate : undefined,
       };
 
     // ── Vibrato (04xy / 06xy at note-on) ─────────────────────────────────

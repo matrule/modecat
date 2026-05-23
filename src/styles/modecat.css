@@ -926,6 +926,34 @@ input[type="checkbox"] {
 .song-row.is-playing { background: var(--wb-orange); color: var(--wb-black); }
 .song-row.is-playing .pos { color: var(--wb-black); }
 
+/* Block number badge shown on each position row (the referenced block's ID) */
+.song-row__blk {
+  color: var(--wb-white);
+  opacity: 0.55;
+  font-size: 0.82em;
+  text-align: center;
+  letter-spacing: 0;
+}
+.song-row.is-current .song-row__blk { opacity: 0.75; }
+.song-row.is-playing  .song-row__blk { color: var(--wb-black); opacity: 0.7; }
+
+/* ↩ indicator: shown when a block is referenced at multiple positions */
+.song-row__reuse {
+  color: var(--wb-orange);
+  font-size: 0.9em;
+  text-align: center;
+  opacity: 0.9;
+}
+.song-row.is-playing .song-row__reuse { color: var(--wb-black); }
+
+/* ×N usage count shown in the Block Library list */
+.song-row__use-count {
+  font-size: 0.78em;
+  text-align: right;
+  color: var(--wb-orange);
+  line-height: 1;
+}
+
 /* Section marker bar — appears between position rows */
 .song__section {
   display: flex;
@@ -1173,36 +1201,38 @@ input[type="checkbox"] {
 /* ---------- Context menu (track copy/paste, etc.) ---------- */
 
 .ctx-menu {
-  background: var(--wb-white);
+  background: var(--wb-dimblue);
   border-top: 2px solid var(--wb-white);
   border-left: 2px solid var(--wb-white);
   border-bottom: 2px solid var(--wb-black);
   border-right: 2px solid var(--wb-black);
   font-family: 'VT323', monospace;
-  font-size: 0.85rem;
+  font-size: inherit;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--wb-black);
+  color: var(--wb-white);
   min-width: 14rem;
   user-select: none;
+  padding: 2px 0;
 }
 .ctx-menu__item {
-  padding: 0.25rem 0.6rem;
+  padding: 4px 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .ctx-menu__item:hover {
   background: var(--wb-blue);
   color: var(--wb-white);
 }
 .ctx-menu__item.is-disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 .ctx-menu__sep {
   height: 1px;
   background: var(--wb-black);
   margin: 2px 0;
-  opacity: 0.25;
+  opacity: 0.5;
 }
 
 /* ---------- About dialog ---------- */
@@ -3573,12 +3603,7 @@ input[type="checkbox"] {
   position: relative;
 }
 
-/* Context menu separator */
-.ctx-menu__sep {
-  height: 1px;
-  background: rgba(255,255,255,0.2);
-  margin: 2px 0;
-}
+/* (ctx-menu__sep defined above with the ctx-menu block) */
 
 /* ---------- Status Bar ---------- */
 

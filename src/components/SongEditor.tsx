@@ -77,6 +77,20 @@ export function SongEditor() {
     return out;
   }, [positions, sectionMarkers]);
 
+  // Which block IDs appear at more than one position (used for the ↩ reuse indicator).
+  const reusedPids = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const pid of positions) counts.set(pid, (counts.get(pid) ?? 0) + 1);
+    return new Set([...counts.entries()].filter(([, c]) => c > 1).map(([pid]) => pid));
+  }, [positions]);
+
+  // How many times each block is referenced in the current song sequence.
+  const pidUseCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const pid of positions) counts.set(pid, (counts.get(pid) ?? 0) + 1);
+    return counts;
+  }, [positions]);
+
   // Find the section marker immediately preceding the current song position (if any).
   const sectionAboveCurrent = useMemo(() => {
     let lastMarkerIdx = -1;
@@ -111,21 +125,21 @@ export function SongEditor() {
             className="song-ctx-menu__item"
             onClick={() => { setSongPos(ctxMenu.posIdx); setCtxMenu(null); }}
           >
-            Go to position {ctxMenu.posIdx}
+            GO TO POSITION {String(ctxMenu.posIdx).padStart(2, '0')}
           </div>
           <div className="song-ctx-menu__sep" />
           <div
             className="song-ctx-menu__item"
             onClick={() => fillSequenceWith(ctxMenu.pid)}
           >
-            Fill sequence with this block
+            FILL SEQUENCE WITH THIS BLOCK
           </div>
           <div className="song-ctx-menu__sep" />
           <div
             className="song-ctx-menu__item"
             onClick={() => { removeSongPosition(ctxMenu.posIdx); setCtxMenu(null); }}
           >
-            Remove position
+            REMOVE POSITION
           </div>
         </div>
       )}
@@ -182,20 +196,27 @@ export function SongEditor() {
 
           // Position row
           const { posIdx, pid } = item;
-          const p = patterns.find((pp) => pp.id === pid);
           const isCurrent = posIdx === songPos;
+          const isReused = reusedPids.has(pid);
           const cls = `song-row ${isCurrent ? 'is-current' : ''} ${isCurrent && playing ? 'is-playing' : ''}`;
           return (
             <div
               key={`pos-${listIdx}`}
               className={cls}
+              style={{ gridTemplateColumns: '3ch 3.5ch 1fr 2ch 2ch' }}
               onClick={() => setSongPos(posIdx)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setCtxMenu({ posIdx, pid, x: e.clientX, y: e.clientY });
               }}
             >
-              <span className="pos">{String(posIdx).padStart(2, '0')}</span>
+              <span className="pos" title="Position index">{String(posIdx).padStart(2, '0')}</span>
+              <span
+                className="song-row__blk"
+                title={`Block ${String(pid).padStart(2, '0')}`}
+              >
+                {String(pid).padStart(2, '0')}
+              </span>
               <select
                 className="pat"
                 value={pid}
@@ -208,13 +229,20 @@ export function SongEditor() {
                   </option>
                 ))}
               </select>
+              <span
+                className="song-row__reuse"
+                style={{ visibility: isReused ? 'visible' : 'hidden' }}
+                title={`Block ${String(pid).padStart(2,'0')} referenced at ${pidUseCounts.get(pid) ?? 1} positions`}
+              >
+                ↩
+              </span>
               <button
                 className="x"
                 onClick={(e) => {
                   e.stopPropagation();
                   removeSongPosition(posIdx);
                 }}
-                title="Remove"
+                title="Remove this position"
               >
                 ×
               </button>
@@ -231,9 +259,9 @@ export function SongEditor() {
             insertSongPosition(songPos + 1, activePid);
           }}
           type="button"
-          title="Insert a reference to the current block after this position"
+          title="Insert another reference to the same block after this position (no new block is created)"
         >
-          + Pos
+          + Ref
         </button>
         <button
           className="btn"
@@ -248,9 +276,9 @@ export function SongEditor() {
             }
           }}
           type="button"
-          title="Duplicate current block and insert after this position"
+          title="Create a new block (copy of this one) and insert it after this position"
         >
-          + Blk
+          + Block
         </button>
         <button
           className="btn"
@@ -340,34 +368,44 @@ export function SongEditor() {
       </div>
 
       <div className="panel" style={{ flex: '0 0 auto', borderTop: '2px solid var(--wb-black)' }}>
-        <div className="panel__title">Blocks</div>
+        <div className="panel__title">Block Library</div>
         <div className="song__patterns">
-          {patterns.map((p) => (
-            <div key={p.id} className="song-row" style={{ gridTemplateColumns: '3ch 1fr 4ch 2ch' }}>
-              <span className="pos">{String(p.id).padStart(2, '0')}</span>
-              <input
-                type="text"
-                value={p.name}
-                onChange={(e) => renamePattern(p.id, e.target.value.slice(0, 16))}
-                style={{ minWidth: 0 }}
-              />
-              <span
-                className="upper"
-                style={{ textAlign: 'right', opacity: 0.7, fontSize: '0.8em', lineHeight: '1' }}
-                title="Row count"
-              >
-                {p.rows.length}
-              </span>
-              <button
-                className="x"
-                onClick={() => deletePattern(p.id)}
-                disabled={patterns.length <= 1}
-                title="Delete block"
-              >
-                ×
-              </button>
-            </div>
-          ))}
+          {patterns.map((p) => {
+            const useCount = pidUseCounts.get(p.id) ?? 0;
+            return (
+              <div key={p.id} className="song-row" style={{ gridTemplateColumns: '3ch 1fr 3ch 3ch 2ch' }}>
+                <span className="pos">{String(p.id).padStart(2, '0')}</span>
+                <input
+                  type="text"
+                  value={p.name}
+                  onChange={(e) => renamePattern(p.id, e.target.value.slice(0, 16))}
+                  style={{ minWidth: 0 }}
+                />
+                <span
+                  className="upper"
+                  style={{ textAlign: 'right', opacity: 0.6, fontSize: '0.8em', lineHeight: '1' }}
+                  title="Row count"
+                >
+                  {p.rows.length}
+                </span>
+                <span
+                  className="song-row__use-count"
+                  title={useCount === 0 ? 'Not used in song' : `Used at ${useCount} position${useCount !== 1 ? 's' : ''}`}
+                  style={{ opacity: useCount === 0 ? 0.35 : 0.85 }}
+                >
+                  {useCount === 0 ? '–' : `×${useCount}`}
+                </span>
+                <button
+                  className="x"
+                  onClick={() => deletePattern(p.id)}
+                  disabled={patterns.length <= 1}
+                  title="Delete block"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

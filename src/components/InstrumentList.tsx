@@ -158,29 +158,29 @@ export function InstrumentList({ onEditSample }: InstrumentListProps = {}) {
               const sep2 = document.createElement('div');
               sep2.className = 'ctx-menu__sep';
               menu.append(
-                mkItem('Edit Sample', !canEditSample, () => {
+                mkItem('EDIT SAMPLE', !canEditSample, () => {
                   onEditSample?.();
                 }),
-                mkItem('Edit Properties', false, () => {
+                mkItem('EDIT PROPERTIES', false, () => {
                   setParamsOpen(idx);
                 }),
                 sep1,
-                mkItem(`Copy Instrument ${slotLabel}`, false, () => {
+                mkItem(`COPY INSTRUMENT ${slotLabel}`, false, () => {
                   instClipboard.current = cloneInstrument(inst);
                   setHasClipboard(true);
                 }),
-                mkItem('Paste Instrument Here', !hasClipboard, () => {
+                mkItem('PASTE INSTRUMENT HERE', !hasClipboard, () => {
                   if (!instClipboard.current) return;
                   setInstrument(idx, cloneInstrument(instClipboard.current));
                 }),
                 sep2,
                 mkItem(
-                  `Reassign ${selLabel} → ${slotLabel}  (this block)`,
+                  `REASSIGN ${selLabel} → ${slotLabel}  (THIS BLOCK)`,
                   !canReassign,
                   () => { reassignInBlock(selected, idx); setSelected(idx); }
                 ),
                 mkItem(
-                  `Reassign ${selLabel} → ${slotLabel}  (all blocks)`,
+                  `REASSIGN ${selLabel} → ${slotLabel}  (ALL BLOCKS)`,
                   !canReassign,
                   () => { swapInstrumentGlobal(selected, idx, 'change'); setSelected(idx); }
                 ),

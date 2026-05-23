@@ -358,6 +358,10 @@ export function PatternEditor() {
   const rangeDragRef = useRef(rangeDrag);
   rangeDragRef.current = rangeDrag;
 
+  // Drag-to-select: stores the anchor cell when a cell mousedown starts.
+  // Cleared on mouseup. Only triggers range extension when mouse enters a different cell.
+  const selectDragRef = useRef<{ row: number; ch: number } | null>(null);
+
   // Global mousemove / mouseup for clip + range dragging
   useEffect(() => {
     function onMove(e: MouseEvent) {
@@ -395,6 +399,7 @@ export function PatternEditor() {
       }
     }
     function onUp() {
+      selectDragRef.current = null; // end drag-to-select
       const d = clipDragRef.current;
       if (d) {
         if (d.kind === 'move') {
@@ -1064,7 +1069,14 @@ export function PatternEditor() {
                       } else {
                         setRange(null);
                         setCursor({ row: r, channel: c, field: 0 });
+                        selectDragRef.current = { row: r, ch: c };
                       }
+                    }}
+                    onMouseEnter={() => {
+                      const anchor = selectDragRef.current;
+                      if (!anchor) return;
+                      if (r === anchor.row && c === anchor.ch) return; // same cell = plain click, ignore
+                      extendRangeTo(r, c);
                     }}
                   />
                 );
@@ -1212,6 +1224,7 @@ function CellView({
   highlighted,
   clipColor,
   onMouseDown,
+  onMouseEnter,
 }: {
   cell: PatternCell;
   channelIndex: number;
@@ -1224,6 +1237,7 @@ function CellView({
   highlighted: boolean;
   clipColor?: string;
   onMouseDown: (e: React.MouseEvent) => void;
+  onMouseEnter?: () => void;
 }) {
   const noteEmpty = cell.note === 0;
   const instEmpty = cell.instrument === 0;
@@ -1246,7 +1260,7 @@ function CellView({
     : undefined;
 
   return (
-    <div className={cls} style={clipStyle} onMouseDown={onMouseDown} data-ch={channelIndex} data-row={rowIndex}>
+    <div className={cls} style={clipStyle} onMouseDown={onMouseDown} onMouseEnter={onMouseEnter} data-ch={channelIndex} data-row={rowIndex}>
       <span className={`note seg ${noteEmpty ? 'is-empty' : ''} ${showCursor && cursorField === 0 ? 'is-cursor' : ''}`}>
         {formatNote(cell.note)}
       </span>
